@@ -1,0 +1,15 @@
+# Local environment and secrets
+.env
+.env.*
+credentials
+credentials.*
+credentials/
+secrets
+secrets.*
+secrets/
+*.pem
+*.key
+service-account*.json
+
+# macOS
+.DS_Store
