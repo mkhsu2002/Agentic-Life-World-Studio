@@ -1,8 +1,10 @@
 # Agentic Life World Studio
 # Universal Text-to-Sandbox Engine｜產品規格與技術架構書
 
-版本：PRD 1.0 · 2026-10-27（America/Vancouver）  
-用途：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World  
+版本：PRD 1.0 · 2026-10-27（America/Vancouver）
+
+用途：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World
+
 文件狀態：提案規格；本 repo 尚未實作產品、串接模型或部署服務。本文程式碼為可獨立驗證的契約參考，並非已上線的引擎。
 
 > **把故事編譯成有記憶的世界，讓每一次探索都成為它的歷史。**
@@ -1439,7 +1441,8 @@ Studio 的 prompt、API 錯誤與驗收紀錄不混進公開網站。黑客松�
 
 Studio／黑客松展示入口首屏文案：
 
-> **Turn your story into a world of daily discoveries.**  
+> **Turn your story into a world of daily discoveries.**
+>
 > Import your story. Shape its world. Launch a site that keeps exploring.
 
 上列為預設英文介面的對外文案；本文其餘中文用於產品規劃。Studio 操作語言可獨立選擇，不改變公開網站的英文預設。
