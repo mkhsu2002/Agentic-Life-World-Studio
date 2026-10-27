@@ -77,6 +77,7 @@ beforeEach(() => {
   sqlite.exec(readFileSync("migrations/0001_studio.sql", "utf8"));
   sqlite.exec(readFileSync("migrations/0002_job_keys.sql", "utf8"));
   sqlite.exec(readFileSync("migrations/0003_active_jobs.sql", "utf8"));
+  sqlite.exec(readFileSync("migrations/0004_import_dialogue.sql", "utf8"));
   const db = {
     prepare: (sql: string) => new Statement(sql),
     batch: async (statements: Statement[]) => {
@@ -548,4 +549,745 @@ it("grants one publisher exclusive ownership of a website preview", async () => 
   expect((await app.request("/api/public/en/parallel", {}, env)).status).toBe(
     200,
   );
+});
+
+async function seedImport() {
+  const w = await getWorld(env, "w");
+  w.status = "reading";
+  await saveWorld(env, w, 1, "seed", "seed");
+  sqlite
+    .prepare(
+      "INSERT INTO segments(id,source_id,ordinal,start_offset,end_offset,text_key) VALUES('s1','s',0,0,30,'segment.txt')",
+    )
+    .run();
+  sqlite
+    .prepare(
+      "INSERT INTO jobs(id,world_id,kind,status,stage,total,payload_json,created_at,updated_at) VALUES('import-job','w','import','queued','reading',2,'{}','now','now')",
+    )
+    .run();
+  const objects = new Map<string, string>([
+    ["segment.txt", "The silver bridge spans a dry valley."],
+    ["sources/s/original.txt", "The silver bridge spans a dry valley."],
+  ]);
+  env.STORAGE = {
+    get: vi.fn(async (key: string) =>
+      objects.has(key)
+        ? {
+            text: async () => objects.get(key)!,
+            json: async () => JSON.parse(objects.get(key)!),
+          }
+        : null,
+    ),
+    put: vi.fn(async (key: string, data: string) => {
+      objects.set(key, data);
+    }),
+  } as unknown as R2Bucket;
+  env.JOBS = { send: vi.fn(async () => {}) } as unknown as Queue;
+  env.MODEL_API_KEY = "test-key";
+  return objects;
+}
+const unsupportedCandidate = () => ({
+  elements: [
+    {
+      key: "bridge",
+      kind: "place",
+      sourceName: "Bridge",
+      englishName: "Bridge",
+      definition: "A bridge over water",
+      aliases: [],
+      features: [
+        {
+          id: "water",
+          text: "A river flows beneath",
+          quote: "river flows",
+          segmentId: "s1",
+          origin: "source",
+          locked: false,
+        },
+      ],
+    },
+  ],
+  facts: [],
+  warnings: [],
+  guidance: ["請補充你希望採用的年代範圍。"],
+});
+function modelResult(value: unknown) {
+  return Response.json({
+    choices: [
+      { finish_reason: "stop", message: { content: JSON.stringify(value) } },
+    ],
+    usage: { prompt_tokens: 100, completion_tokens: 20 },
+  });
+}
+it("turns exhausted evidence repairs into a durable dialogue without counting unread source", async () => {
+  await seedImport();
+  const fetcher = vi.fn(async () => modelResult(unsupportedCandidate()));
+  vi.stubGlobal("fetch", fetcher);
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(
+    sqlite
+      .prepare("SELECT status,completed,error FROM jobs WHERE id='import-job'")
+      .get(),
+  ).toMatchObject({ status: "waiting_user", completed: 0, error: null });
+  expect(
+    sqlite.prepare("SELECT processed_count FROM sources WHERE id='s'").get(),
+  ).toMatchObject({ processed_count: 0 });
+  expect(
+    sqlite.prepare("SELECT status FROM segments WHERE id='s1'").get(),
+  ).toMatchObject({ status: "queued" });
+  expect(
+    sqlite.prepare("SELECT kind,status FROM import_reviews").get(),
+  ).toMatchObject({ kind: "evidence", status: "open" });
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE role='assistant'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM usage_ledger WHERE status='incurred'")
+      .get(),
+  ).toMatchObject({ n: 3 });
+  await processJob(env, "import-job");
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  const detail = await app.request(
+    "/api/worlds/w",
+    { headers: { Cookie: await cookie() } },
+    env,
+  );
+  expect(await detail.json()).toMatchObject({
+    importReview: {
+      kind: "evidence",
+      sourceText: "The silver bridge spans a dry valley.",
+      problems: [{ id: "element:0:feature:0" }],
+    },
+  });
+});
+it("records author decisions, audit and outbox once before continuing the saved import", async () => {
+  await seedImport();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => modelResult(unsupportedCandidate())),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const auth = { Cookie: await cookie(), "Content-Type": "application/json" };
+  const req = {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({
+      revision: 1,
+      decisions: {
+        "element:0:feature:0": {
+          action: "author_confirm",
+          text: "A seasonal river once flowed here",
+        },
+      },
+      message: "這是我補充的歷史設定",
+    }),
+  };
+  const first = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    req,
+    env,
+  );
+  expect(first.status).toBe(202);
+  const again = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    req,
+    env,
+  );
+  expect(again.status).toBe(409);
+  expect(
+    sqlite
+      .prepare("SELECT status,completed FROM jobs WHERE id='import-job'")
+      .get(),
+  ).toMatchObject({ status: "queued", completed: 1 });
+  expect(
+    sqlite.prepare("SELECT processed_count FROM sources WHERE id='s'").get(),
+  ).toMatchObject({ processed_count: 1 });
+  const segment = sqlite
+    .prepare("SELECT result_json FROM segments WHERE id='s1'")
+    .get() as { result_json: string };
+  expect(JSON.parse(segment.result_json).elements[0].features[0]).toMatchObject(
+    { origin: "user", quote: "", text: "A seasonal river once flowed here" },
+  );
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM outbox").get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare(
+        "SELECT COUNT(*) AS n FROM audit WHERE type='import.review_resolved'",
+      )
+      .get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE role='user'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+});
+it("keeps an import pending when a replacement quote cannot be found", async () => {
+  await seedImport();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => modelResult(unsupportedCandidate())),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const response = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: 1,
+        decisions: {
+          "element:0:feature:0": {
+            action: "replace_quote",
+            quote: "invented words",
+          },
+        },
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(409);
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "waiting_user" });
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM outbox").get(),
+  ).toMatchObject({ n: 0 });
+});
+it("accepts an initial author brief without ending reading or claiming analysis completed", async () => {
+  await seedImport();
+  const response = await app.request(
+    "/api/worlds/w/import-brief",
+    {
+      method: "PATCH",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: 1,
+        brief: {
+          timeframe: "Before the flood",
+          scope: "Valley landscapes",
+          visualStyle: "Ink",
+          notes: "Do not add a river",
+        },
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(200);
+  const w = await getWorld(env, "w");
+  expect(w.status).toBe("reading");
+  expect(w.revision).toBe(1);
+  expect(w.importBrief).toMatchObject({
+    timeframe: "Before the flood",
+    notes: "Do not add a river",
+  });
+  expect(w.importBrief?.confirmedAt).toBeTruthy();
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE role='user'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+});
+it("offers a persistent retry conversation for a provider failure during source reading", async () => {
+  await seedImport();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        { error: { code: "temporary_unavailable" } },
+        { status: 503 },
+      ),
+    ),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "waiting_user" });
+  expect(
+    sqlite.prepare("SELECT kind,status FROM import_reviews").get(),
+  ).toMatchObject({ kind: "processing", status: "open" });
+  expect(sqlite.prepare("SELECT status FROM usage_ledger").get()).toMatchObject(
+    { status: "uncertain" },
+  );
+});
+
+it("requires the initial direction form before compilation and consumes the latest confirmed brief", async () => {
+  await seedImport();
+  const valid = unsupportedCandidate();
+  valid.elements[0].features[0].quote = "silver bridge";
+  valid.elements[0].features[0].text = "Silver bridge";
+  sqlite
+    .prepare("UPDATE segments SET status='done',result_json=? WHERE id='s1'")
+    .run(JSON.stringify(valid));
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  sqlite.prepare("UPDATE jobs SET completed=1 WHERE id='import-job'").run();
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(sqlite.prepare("SELECT kind FROM import_reviews").get()).toMatchObject(
+    { kind: "brief" },
+  );
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const response = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: 1,
+        decisions: {},
+        brief: {
+          timeframe: "Before the flood",
+          scope: "Only the valley",
+          visualStyle: "Woodcut",
+          notes: "Use author notes separately",
+        },
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(202);
+  const style = {
+    id: "s",
+    name: "Style",
+    description: "Style",
+    medium: "woodcut",
+    palette: ["#223344"],
+    lighting: "soft",
+    materials: [],
+    forbidden: [],
+    evidence: [],
+  };
+  fetcher.mockImplementation(async () =>
+    modelResult({
+      title: "Valley",
+      summary: "A dry valley with a silver bridge",
+      era: "Before the flood",
+      geography: "Valley",
+      ecology: "Unknown",
+      rules: [],
+      questions: [],
+      styles: [style, { ...style, id: "s2" }, { ...style, id: "s3" }],
+    }),
+  );
+  await processJob(env, "import-job");
+  expect(await getWorld(env, "w")).toMatchObject({
+    status: "draft",
+    era: "Before the flood",
+    importBrief: { scope: "Only the valley" },
+  });
+  const request = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+  const context = JSON.parse(
+    JSON.parse(String(request[1].body)).messages[1].content,
+  );
+  expect(context.authorBrief).toMatchObject({
+    timeframe: "Before the flood",
+    visualStyle: "Woodcut",
+  });
+  expect(
+    sqlite
+      .prepare("SELECT status,completed FROM jobs WHERE id='import-job'")
+      .get(),
+  ).toMatchObject({ status: "succeeded", completed: 2 });
+});
+it("upgrades a prior failed import into a dialogue using the saved evidence checkpoint without model calls", async () => {
+  const objects = await seedImport();
+  objects.set(
+    "jobs/import-job/segment-0-repair-1.json",
+    JSON.stringify({ output: unsupportedCandidate() }),
+  );
+  sqlite
+    .prepare(
+      "UPDATE jobs SET status='failed',error='EVIDENCE_QUOTE_INVALID: old failure' WHERE id='import-job'",
+    )
+    .run();
+  sqlite.exec(readFileSync("migrations/0004_import_dialogue.sql", "utf8"));
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await app.request(
+    "/api/worlds/w",
+    { headers: { Cookie: await cookie() } },
+    env,
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    importReview: {
+      kind: "evidence",
+      problems: [{ id: "element:0:feature:0" }],
+    },
+    jobs: [{ status: "waiting_user", completed: 0 }],
+  });
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE role='assistant'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+});
+it("stores clarification from the retry dialogue as author context without silently confirming the initial form", async () => {
+  await seedImport();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({ error: { code: "temporary" } }, { status: 503 }),
+    ),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const response = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: 1,
+        decisions: {},
+        message: "只處理小說正文，附錄保留參考",
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(202);
+  expect((await getWorld(env, "w")).importBrief).toMatchObject({
+    notes: "只處理小說正文，附錄保留參考",
+    confirmedAt: null,
+  });
+});
+it("atomically accepts only one concurrent resolution and emits one continuation", async () => {
+  await seedImport();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => modelResult(unsupportedCandidate())),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const auth = { Cookie: await cookie(), "Content-Type": "application/json" };
+  const request = {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({
+      revision: 1,
+      decisions: { "element:0:feature:0": { action: "author_confirm" } },
+    }),
+  };
+  const responses = await Promise.all([
+    app.request(
+      `/api/worlds/w/import-reviews/${review.id}/resolve`,
+      request,
+      env,
+    ),
+    app.request(
+      `/api/worlds/w/import-reviews/${review.id}/resolve`,
+      request,
+      env,
+    ),
+  ]);
+  expect(responses.map((r) => r.status).sort()).toEqual([202, 409]);
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM outbox").get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare(
+        "SELECT COUNT(*) AS n FROM audit WHERE type='import.review_resolved'",
+      )
+      .get(),
+  ).toMatchObject({ n: 1 });
+});
+
+it("retains candidate evidence in a dialogue when a later repair request fails", async () => {
+  await seedImport();
+  const first = unsupportedCandidate();
+  first.elements[0].features.unshift({
+    id: "material",
+    text: "Silver bridge",
+    quote: "silver bridge",
+    segmentId: "s1",
+    origin: "source",
+    locked: false,
+  });
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ++calls === 1
+        ? modelResult(first)
+        : Response.json({ error: { code: "temporary" } }, { status: 503 }),
+    ),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  const response = await app.request(
+    "/api/worlds/w",
+    { headers: { Cookie: await cookie() } },
+    env,
+  );
+  expect(await response.json()).toMatchObject({
+    importReview: {
+      kind: "evidence",
+      problems: [{ id: "element:0:feature:1" }],
+    },
+  });
+  expect(calls).toBe(2);
+});
+it("does not allow a delayed queue worker to claim an import now awaiting the author", async () => {
+  await seedImport();
+  const fetcher = vi.fn(async () => modelResult(unsupportedCandidate()));
+  vi.stubGlobal("fetch", fetcher);
+  const prepare = env.DB.prepare.bind(env.DB);
+  let count = 0,
+    release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  env.DB.prepare = ((sql: string) => {
+    const stmt = prepare(sql);
+    if (sql.includes("SET status='running',lease_until")) {
+      const run = stmt.run.bind(stmt);
+      stmt.run = (async () => {
+        if (++count === 2) await gate;
+        return run();
+      }) as typeof stmt.run;
+    }
+    return stmt;
+  }) as typeof env.DB.prepare;
+  const { processJob } = await import("../src/server/jobs");
+  const a = processJob(env, "import-job"),
+    b = processJob(env, "import-job");
+  await a;
+  release();
+  await b;
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "waiting_user" });
+  expect(
+    sqlite.prepare("SELECT processed_count FROM sources WHERE id='s'").get(),
+  ).toMatchObject({ processed_count: 0 });
+});
+
+it("reuses verified extraction after a storage-stage failure without billing another model call", async () => {
+  await seedImport();
+  const valid = unsupportedCandidate();
+  valid.elements[0].features[0].quote = "silver bridge";
+  valid.elements[0].features[0].text = "Silver bridge";
+  const fetcher = vi.fn(async () => modelResult(valid));
+  vi.stubGlobal("fetch", fetcher);
+  const batch = env.DB.batch.bind(env.DB);
+  let failed = false;
+  env.DB.batch = (async (statements: D1PreparedStatement[]) => {
+    if (
+      !failed &&
+      statements.some((s) =>
+        (s as unknown as Statement).sql.startsWith(
+          "UPDATE segments SET result_json",
+        ),
+      )
+    ) {
+      failed = true;
+      throw new Error("transient database write");
+    }
+    return batch(statements);
+  }) as typeof env.DB.batch;
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "waiting_user" });
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const response = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: 1, decisions: {} }),
+    },
+    env,
+  );
+  expect(response.status).toBe(202);
+  await processJob(env, "import-job");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(
+    sqlite.prepare("SELECT processed_count FROM sources WHERE id='s'").get(),
+  ).toMatchObject({ processed_count: 1 });
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM usage_ledger").get(),
+  ).toMatchObject({ n: 1 });
+});
+
+it("commits compiled world and import completion together or retains a resumable reading state", async () => {
+  await seedImport();
+  const w = await getWorld(env, "w");
+  w.importBrief = {
+    timeframe: "",
+    scope: "",
+    visualStyle: "",
+    notes: "",
+    confirmedAt: "now",
+  };
+  await saveWorld(env, w, 1, "seed-brief", "seed");
+  const valid = unsupportedCandidate();
+  valid.elements[0].features[0].quote = "silver bridge";
+  valid.elements[0].features[0].text = "Silver bridge";
+  sqlite
+    .prepare("UPDATE segments SET status='done',result_json=? WHERE id='s1'")
+    .run(JSON.stringify(valid));
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  sqlite.prepare("UPDATE jobs SET completed=1 WHERE id='import-job'").run();
+  const style = {
+    id: "s",
+    name: "Style",
+    description: "Style",
+    medium: "woodcut",
+    palette: ["#223344"],
+    lighting: "soft",
+    materials: [],
+    forbidden: [],
+    evidence: [],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      modelResult({
+        title: "Valley",
+        summary: "A dry valley",
+        era: "unknown",
+        geography: "Valley",
+        ecology: "unknown",
+        rules: [],
+        questions: [],
+        styles: [style, { ...style, id: "s2" }, { ...style, id: "s3" }],
+      }),
+    ),
+  );
+  const batch = env.DB.batch.bind(env.DB);
+  let failed = false;
+  env.DB.batch = (async (statements: D1PreparedStatement[]) => {
+    if (
+      !failed &&
+      statements.some((s) =>
+        (s as unknown as Statement).sql.includes("SET status='succeeded'"),
+      )
+    ) {
+      failed = true;
+      throw new Error("transient completion write");
+    }
+    return batch(statements);
+  }) as typeof env.DB.batch;
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect((await getWorld(env, "w")).status).toBe("reading");
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "waiting_user" });
+  const review = sqlite.prepare("SELECT id FROM import_reviews").get() as {
+    id: string;
+  };
+  const response = await app.request(
+    `/api/worlds/w/import-reviews/${review.id}/resolve`,
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: 1, decisions: {} }),
+    },
+    env,
+  );
+  expect(response.status).toBe(202);
+});
+
+it("keeps completed-world legacy import failures retryable instead of creating an unresolvable review", async () => {
+  await seedImport();
+  const w = await getWorld(env, "w");
+  w.status = "draft";
+  await saveWorld(env, w, 1, "compiled", "compiled");
+  sqlite
+    .prepare(
+      "UPDATE jobs SET status='failed',error='transient completion' WHERE id='import-job'",
+    )
+    .run();
+  sqlite.exec(readFileSync("migrations/0004_import_dialogue.sql", "utf8"));
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM import_reviews").get(),
+  ).toMatchObject({ n: 0 });
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "failed" });
+});
+
+it("does not cache a compilation that lacks the three style directions", async () => {
+  const objects = await seedImport();
+  const w = await getWorld(env, "w");
+  w.importBrief = {
+    timeframe: "",
+    scope: "",
+    visualStyle: "",
+    notes: "",
+    confirmedAt: "now",
+  };
+  await saveWorld(env, w, 1, "seed-brief", "seed");
+  const valid = unsupportedCandidate();
+  valid.elements[0].features[0].quote = "silver bridge";
+  valid.elements[0].features[0].text = "Silver bridge";
+  sqlite
+    .prepare("UPDATE segments SET status='done',result_json=? WHERE id='s1'")
+    .run(JSON.stringify(valid));
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  sqlite.prepare("UPDATE jobs SET completed=1 WHERE id='import-job'").run();
+  const style = {
+    id: "s",
+    name: "Style",
+    description: "Style",
+    medium: "woodcut",
+    palette: ["#223344"],
+    lighting: "soft",
+    materials: [],
+    forbidden: [],
+    evidence: [],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      modelResult({
+        title: "Valley",
+        summary: "A dry valley",
+        era: "unknown",
+        geography: "Valley",
+        ecology: "unknown",
+        rules: [],
+        questions: [],
+        styles: [style, { ...style, id: "s2" }],
+      }),
+    ),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(objects.has("jobs/import-job/compiled-proposal.json")).toBe(false);
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "waiting_user" });
 });

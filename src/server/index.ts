@@ -1,3 +1,6 @@
+import { PRODUCT_VERSION } from "../shared/version";
+import { importRoutes } from "./import-routes";
+import { openImportReview, importSuggestions } from "./import-dialogue";
 import { usage } from "./usage";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -177,14 +180,14 @@ app.onError((e, c) => {
 });
 app.get("/api/health", async (c) => {
   const schema = await c.env.DB.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sources','worlds','elements','terms','jobs','audit','releases')",
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sources','worlds','elements','terms','jobs','audit','releases','import_reviews')",
   ).all();
   return c.json({
-    status: schema.results.length === 7 ? "ok" : "schema_missing",
-    version: "0.01",
+    status: schema.results.length === 8 ? "ok" : "schema_missing",
+    version: PRODUCT_VERSION,
     revision: c.env.BUILD_REVISION || "local",
     environment: c.env.ENVIRONMENT,
-    contract: "utsp-studio/0.01",
+    contract: "utsp-studio/0.02",
   });
 });
 app.get("/api/session", async (c) =>
@@ -209,7 +212,7 @@ app.get("/api/overview", async (c) => {
     worlds: results.map((r) => JSON.parse(r.document_json)),
     jobs: await jobs(c.env),
     audit: await audit(c.env),
-    version: "0.01",
+    version: PRODUCT_VERSION,
     capabilities: {
       meta: Boolean(c.env.MODEL_API_KEY),
       image: Boolean(c.env.MODEL_API_KEY),
@@ -261,6 +264,13 @@ app.post("/api/sources", async (c) => {
     revision: 1,
     recordVersion: 1,
     status: "reading",
+    importBrief: {
+      timeframe: "",
+      scope: "",
+      visualStyle: "",
+      notes: "",
+      confirmedAt: null,
+    },
     sourceId: id,
     summary: "",
     era: "",
@@ -330,6 +340,8 @@ app.get("/api/worlds/:id", async (c) => {
   const w = await getWorld(c.env, c.req.param("id"));
   return c.json({
     world: w,
+    importReview: await openImportReview(c.env, w.id),
+    importSuggestions: await importSuggestions(c.env, w.sourceId, w.id),
     source: await sourceInfo(c.env, w.sourceId),
     jobs: await jobs(c.env, w.id),
     audit: await audit(c.env, w.id),
@@ -722,6 +734,7 @@ app.post("/api/jobs/:id/retry", async (c) => {
   await deliverOutbox(c.env);
   return c.json({ jobId: job.id }, 202);
 });
+app.route("/api", importRoutes);
 app.route("/api", siteRoutes);
 app.get("/media/:id", async (c) => {
   const id = c.req.param("id");

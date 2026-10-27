@@ -25,3 +25,6 @@ test-results/
 
 __pycache__/
 *.pyc
+
+# Local browser QA output
+.playwright-mcp/

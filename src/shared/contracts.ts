@@ -66,10 +66,40 @@ export type Translation = {
   issues: string[];
   approvedAt: string | null;
 };
+export type ImportBrief = {
+  timeframe: string;
+  scope: string;
+  visualStyle: string;
+  notes: string;
+  confirmedAt: string | null;
+};
+export type EvidenceProblem = {
+  id: string;
+  kind: "feature" | "fact";
+  elementName: string | null;
+  claim: string;
+  quote: string;
+};
+export type EvidenceDecision = {
+  action: "replace_quote" | "author_confirm" | "exclude";
+  quote?: string;
+  text?: string;
+};
+export type ImportReview = {
+  id: string;
+  jobId: string;
+  kind: "evidence" | "processing" | "brief";
+  message: string;
+  segmentOrdinal: number | null;
+  sourceText: string;
+  problems: EvidenceProblem[];
+  createdAt: string;
+};
 export type WorldDraft = {
   id: string;
   recordVersion?: number;
   resolvedDecisions?: string;
+  importBrief?: ImportBrief;
   title: string;
   revision: number;
   status: "reading" | "draft" | "confirmed";
@@ -105,7 +135,7 @@ export type Job = {
   id: string;
   worldId: string | null;
   kind: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "waiting_user" | "succeeded" | "failed";
   stage: string;
   completed: number;
   total: number;
@@ -138,6 +168,8 @@ export type SiteRelease = {
   createdAt: string;
 };
 export type WorldDetail = {
+  importReview: ImportReview | null;
+  importSuggestions: string[];
   world: WorldDraft;
   source: SourceInfo;
   jobs: Job[];
@@ -190,6 +222,7 @@ export const extractedElementSchema = z.object({
   features: z.array(featureSchema),
 });
 export const extractionSchema = z.object({
+  guidance: z.array(z.string()).max(6).optional(),
   elements: z.array(extractedElementSchema),
   facts: z.array(
     z.object({ text: z.string(), quote: z.string(), segmentId: z.string() }),

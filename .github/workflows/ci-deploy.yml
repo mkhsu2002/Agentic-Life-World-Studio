@@ -1,8 +1,9 @@
 name: Validate and deploy World Studio
 on:
   push:
-    branches: [main, feat/mvp-v001]
+    branches: [main, feat/v002-import-dialogue]
     paths:
+      - "VERSION"
       - "src/**"
       - "tests/**"
       - "migrations/**"
@@ -18,6 +19,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "VERSION"
       - "src/**"
       - "tests/**"
       - "migrations/**"

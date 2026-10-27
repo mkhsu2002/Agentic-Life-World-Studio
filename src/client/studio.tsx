@@ -1,3 +1,4 @@
+import { PRODUCT_VERSION, PRODUCT_LABEL } from "../shared/version";
 import {
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import type {
 import { api, post, ApiError, errorMessage } from "./api";
 import { ImportSource } from "./import-source";
 import { WorldPanels } from "./world-panels";
+import { ImportReviewDialog } from "./import-dialogue";
 
 export const date = (value: string) =>
   new Intl.DateTimeFormat("zh-TW", {
@@ -45,6 +47,7 @@ export const statusName = (status: string) =>
     confirmed: "已確認",
     queued: "等待中",
     running: "進行中",
+    waiting_user: "需要你確認",
     succeeded: "已完成",
     failed: "失敗",
     approved: "已核准",
@@ -109,7 +112,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
             從你的第一個故事開始。
           </p>
         </div>
-        <small>AGENTIC LIFE WORLD STUDIO · v0.01</small>
+        <small>AGENTIC LIFE WORLD STUDIO · {PRODUCT_LABEL}</small>
       </div>
       <section className="login-form">
         <div className="form-stack">
@@ -147,10 +150,12 @@ export function JobList({
   jobs,
   retry,
   busy,
+  openWorld,
 }: {
   jobs: Job[];
   retry: (id: string) => void;
   busy: boolean;
+  openWorld?: (id: string) => void;
 }) {
   if (!jobs.length) return <p className="empty-inline">目前沒有工作。</p>;
   return (
@@ -166,17 +171,36 @@ export function JobList({
                     import: "原作閱讀",
                     ingest: "原作閱讀",
                     compile: "世界建構",
+                    resolve: "世界設定",
                     visual: "視覺預覽",
                     translate: "語系翻譯",
                     translation: "語系翻譯",
                     translation_review: "翻譯審查",
                     "translation-review": "翻譯審查",
                   } as Record<string, string>
-                )[job.kind] || job.kind}
+                )[job.kind] || "世界整理"}
               </strong>
-              <span className="badge">{statusName(job.status)}</span>
+              <span className={`badge ${job.status}`}>
+                {statusName(job.status)}
+              </span>
             </div>
-            <p>{job.stage || "等待處理"}</p>
+            <p>
+              {job.status === "waiting_user"
+                ? "請開啟確認對話後繼續"
+                : job.status === "succeeded"
+                  ? "整理完成"
+                  : (
+                      {
+                        reading: "逐段閱讀原作",
+                        import: "開始閱讀原作",
+                        resolve: "整理你的設定",
+                        visual: "準備視覺預覽",
+                        translate: "整理語系內容",
+                        translation_review: "核對語系內容",
+                        author_brief_updated: "套用最新補充",
+                      } as Record<string, string>
+                    )[job.stage] || "正在整理這份世界"}
+            </p>
             {job.total > 0 && (
               <>
                 <progress
@@ -191,6 +215,16 @@ export function JobList({
             )}
             {job.error && <p className="error-text">{job.error}</p>}
           </div>
+          {job.status === "waiting_user" && job.worldId && openWorld && (
+            <button
+              className="subtle"
+              disabled={busy}
+              onClick={() => openWorld(job.worldId!)}
+            >
+              前往確認
+              <ArrowUpRight size={14} />
+            </button>
+          )}
           {job.status === "failed" && (
             <button
               className="subtle"
@@ -234,6 +268,8 @@ export function Studio() {
   const [detail, setDetail] = useState<WorldDetail | null>(null);
   const [tab, setTab] = useState("source");
   const [importing, setImporting] = useState(false);
+  const [openReviewId, setOpenReviewId] = useState<string | null>(null);
+  const seenReviewIds = useRef(new Set<string>());
   const [pending, setPending] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -287,6 +323,13 @@ export function Studio() {
         if (selectionRef.current === selected) setLoading(false);
       });
   }, [selected, authenticated, loadWorld, handleError]);
+  useEffect(() => {
+    const review = detail?.importReview;
+    if (review && !seenReviewIds.current.has(review.id)) {
+      seenReviewIds.current.add(review.id);
+      setOpenReviewId(review.id);
+    }
+  }, [detail?.importReview?.id]);
   const polling = selected
     ? !!detail?.jobs.some(activeJob)
     : !!overview?.jobs.some(activeJob);
@@ -312,6 +355,7 @@ export function Studio() {
     };
   }, [authenticated, polling, selected, loadWorld, loadOverview, handleError]);
   function select(id: string | null) {
+    setOpenReviewId(null);
     setSelected(id);
     setDetail(null);
     setTab("source");
@@ -483,7 +527,8 @@ export function Studio() {
           <div className="studio-version">
             <span className="avatar">MK</span>
             <span>
-              作者工作室<small>Studio · {overview?.version || "v0.01"}</small>
+              作者工作室
+              <small>Studio · v{overview?.version || PRODUCT_VERSION}</small>
             </span>
             <button
               className="icon-button"
@@ -644,8 +689,16 @@ export function Studio() {
                         <span className="eyebrow">
                           WORLD / {String(i + 1).padStart(2, "0")}
                         </span>
-                        <span className={`badge ${world.status}`}>
-                          {statusName(world.status)}
+                        <span
+                          className={`badge ${overview.jobs.some((job) => job.worldId === world.id && job.status === "waiting_user") ? "waiting_user" : world.status}`}
+                        >
+                          {overview.jobs.some(
+                            (job) =>
+                              job.worldId === world.id &&
+                              job.status === "waiting_user",
+                          )
+                            ? "需要你確認"
+                            : statusName(world.status)}
                         </span>
                       </div>
                       <h3>{world.title}</h3>
@@ -673,6 +726,7 @@ export function Studio() {
                     jobs={overview?.jobs.slice(0, 8) || []}
                     retry={(id) => void retry(id)}
                     busy={!!pending}
+                    openWorld={select}
                   />
                 </section>
                 <section className="panel">
@@ -707,8 +761,10 @@ export function Studio() {
                   </p>
                 </div>
                 <span className="badge">
-                  {statusName(detail.world.status)} · 第 {detail.world.revision}{" "}
-                  版
+                  {detail.importReview
+                    ? "需要你確認"
+                    : statusName(detail.world.status)}{" "}
+                  · 第 {detail.world.revision} 版
                 </span>
               </section>
               <nav className="tabs" aria-label="世界工作區">
@@ -742,6 +798,9 @@ export function Studio() {
                 run={run}
                 busy={!!pending}
                 retry={(id) => void retry(id)}
+                openImportReview={() =>
+                  setOpenReviewId(detail.importReview?.id || null)
+                }
               />
             </>
           )}
@@ -751,6 +810,16 @@ export function Studio() {
           </footer>
         </main>
       </div>
+      {detail?.importReview && openReviewId === detail.importReview.id && (
+        <ImportReviewDialog
+          key={detail.importReview.id}
+          detail={detail}
+          review={detail.importReview}
+          run={run}
+          busy={!!pending}
+          onClose={() => setOpenReviewId(null)}
+        />
+      )}
       {importing && (
         <ImportSource
           onClose={() => setImporting(false)}

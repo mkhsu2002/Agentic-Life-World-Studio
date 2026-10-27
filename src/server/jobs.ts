@@ -1,3 +1,5 @@
+import { inspectEvidence } from "./import-evidence";
+import { pauseImport } from "./import-dialogue";
 import { usage } from "./usage";
 import { runLocalization } from "./localization";
 import { Buffer } from "node:buffer";
@@ -119,47 +121,52 @@ async function readSegment(env: Env, job: JobRow) {
       aliases: e.aliases,
     })),
   );
-  let output = await usage(env, job, "read_segment", "muse-spark-1.3", () =>
-    callJson(
-      env.MODEL_API_KEY,
-      READER,
-      { segmentId: segment.id, text, knownNames: known.slice(-160) },
-      extractionSchema,
-    ),
-  );
+  const candidateKey = `jobs/${job.id}/segment-${segment.ordinal}-candidate.json`;
+  const cached = await env.STORAGE.get(candidateKey);
+  const cachedValue = cached
+    ? extractionSchema.safeParse(
+        (await cached.json<{ output?: unknown }>()).output,
+      )
+    : null;
+  let output =
+    cachedValue?.success &&
+    !inspectEvidence(text, cachedValue.data, segment.id).problems.length
+      ? { value: cachedValue.data, usage: { input: 0, output: 0 } }
+      : await usage(env, job, "read_segment", "muse-spark-1.3", () =>
+          callJson(
+            env.MODEL_API_KEY,
+            READER,
+            {
+              segmentId: segment.id,
+              text,
+              knownNames: known.slice(-160),
+              authorBrief: w.importBrief,
+            },
+            extractionSchema,
+          ),
+        );
   for (let attempt = 0; attempt < 3; attempt++) {
-    const invalid: string[] = [];
-    for (const element of output.value.elements)
-      for (const feature of element.features) {
-        const quote = resolveQuote(text, feature.quote);
-        if (!quote)
-          invalid.push(
-            `feature ${element.sourceName}/${feature.id}: quote is not a contiguous source span`,
-          );
-        else {
-          feature.quote = quote;
-          feature.segmentId = segment.id;
-        }
-      }
-    for (let i = 0; i < output.value.facts.length; i++) {
-      const fact = output.value.facts[i],
-        quote = resolveQuote(text, fact.quote);
-      if (!quote)
-        invalid.push(`fact ${i}: quote is not a contiguous source span`);
-      else {
-        fact.quote = quote;
-        fact.segmentId = segment.id;
-      }
-    }
-    if (!invalid.length) break;
-    if (attempt === 2)
-      throw new DomainError(
+    const inspected = inspectEvidence(text, output.value, segment.id);
+    output.value = inspected.candidate;
+    await env.STORAGE.put(
+      candidateKey,
+      JSON.stringify({ output: output.value }),
+    );
+    if (!inspected.problems.length) break;
+    if (attempt === 2) {
+      await pauseImport(
+        env,
+        job,
+        "evidence",
         "EVIDENCE_QUOTE_INVALID",
-        "Evidence could not be verified after two bounded repairs",
+        segment.id,
+        output.value,
       );
+      return;
+    }
     await env.STORAGE.put(
       `jobs/${job.id}/segment-${segment.ordinal}-repair-${attempt}.json`,
-      JSON.stringify({ invalid, output: output.value }),
+      JSON.stringify({ invalid: inspected.problems, output: output.value }),
     );
     output = await usage(
       env,
@@ -170,12 +177,13 @@ async function readSegment(env: Env, job: JobRow) {
         callJson(
           env.MODEL_API_KEY,
           READER +
-            " Repair the listed invalid evidence. Use a short exact contiguous quote copied from this segment; do not combine sentences with ellipses or paraphrase the quote. If a claim has no support here, remove that unsupported claim, preserving other valid evidence.",
+            " Repair the listed invalid evidence. Use a short exact contiguous quote copied from this segment; do not combine sentences with ellipses or paraphrase the quote. If a claim has no support here, remove that unsupported claim, preserving other valid evidence. Author supplements are context, never quotations from this source segment.",
           {
             segmentId: segment.id,
             text,
             previous: output.value,
-            validationErrors: invalid,
+            validationErrors: inspected.problems,
+            authorBrief: w.importBrief,
           },
           extractionSchema,
         ),
@@ -198,6 +206,11 @@ async function readSegment(env: Env, job: JobRow) {
   await resume(env, job, job.completed + 1, "reading");
 }
 async function synthesize(env: Env, job: JobRow, w: WorldDraft) {
+  if (!w.importBrief?.confirmedAt) {
+    await pauseImport(env, job, "brief", "IMPORT_BRIEF_REQUIRED");
+    return;
+  }
+  const briefSnapshot = JSON.stringify(w.importBrief);
   const rows = await env.DB.prepare(
     "SELECT result_json FROM segments WHERE source_id=? ORDER BY ordinal",
   )
@@ -208,19 +221,30 @@ async function synthesize(env: Env, job: JobRow, w: WorldDraft) {
   const batches = rows.results.map(
     (r) => JSON.parse(r.result_json) as z.infer<typeof extractionSchema>,
   );
-  const summary = await usage(
-    env,
-    job,
-    "world_compiler",
-    "muse-spark-1.3",
-    () =>
-      callJson(
-        env.MODEL_API_KEY,
-        COMPILER,
-        { sourceTitle: w.title, segments: batches },
-        synthesisSchema,
-      ),
-  );
+  const compiledKey = `jobs/${job.id}/compiled-proposal.json`;
+  const cachedCompilation = await env.STORAGE.get(compiledKey);
+  const savedCompilation = cachedCompilation
+    ? await cachedCompilation.json<{ brief: string; value: unknown }>()
+    : null;
+  const cachedSummary =
+    savedCompilation?.brief === briefSnapshot
+      ? synthesisSchema.safeParse(savedCompilation.value)
+      : null;
+  const summary =
+    cachedSummary?.success && cachedSummary.data.styles.length === 3
+      ? { value: cachedSummary.data, usage: { input: 0, output: 0 } }
+      : await usage(env, job, "world_compiler", "muse-spark-1.3", () =>
+          callJson(
+            env.MODEL_API_KEY,
+            COMPILER,
+            {
+              sourceTitle: w.title,
+              segments: batches,
+              authorBrief: w.importBrief,
+            },
+            synthesisSchema,
+          ),
+        );
   const elements = new Map<string, Element>();
   for (const batch of batches)
     for (const e of batch.elements) {
@@ -251,9 +275,14 @@ async function synthesize(env: Env, job: JobRow, w: WorldDraft) {
         }
       }
     }
+  const fresh = await getWorld(env, w.id);
+  if (JSON.stringify(fresh.importBrief) !== briefSnapshot) {
+    await resume(env, job, job.completed, "author_brief_updated");
+    return;
+  }
   const s = summary.value;
   const next: WorldDraft = {
-    ...w,
+    ...fresh,
     ...s,
     title: s.title || w.title,
     elements: [...elements.values()],
@@ -264,17 +293,27 @@ async function synthesize(env: Env, job: JobRow, w: WorldDraft) {
   };
   if (!next.elements.length || next.styles.length !== 3)
     throw new DomainError("WORLD_COMPILATION_EMPTY");
+  await env.STORAGE.put(
+    compiledKey,
+    JSON.stringify({ brief: briefSnapshot, value: summary.value }),
+  );
   await saveWorld(
     env,
     next,
     w.revision,
     "world.compiled",
     "Source coverage complete; world ready for review",
-  );
-  await complete(
-    env,
-    job,
-    "World settings and central element registry compiled",
+    [
+      env.DB.prepare(
+        "UPDATE jobs SET status='succeeded',stage='complete',completed=total,lease_until=NULL,updated_at=? WHERE id=?",
+      ).bind(now(), job.id),
+      auditStatement(
+        env,
+        job.world_id,
+        "job.succeeded",
+        "World settings and central element registry compiled",
+      ),
+    ],
   );
 }
 async function visual(env: Env, job: JobRow) {
@@ -432,22 +471,35 @@ export async function processJob(env: Env, jobId: string) {
   const job = await env.DB.prepare("SELECT * FROM jobs WHERE id=?")
     .bind(jobId)
     .first<JobRow>();
-  if (!job || ["succeeded", "failed"].includes(job.status)) return;
+  if (!job || ["succeeded", "failed", "waiting_user"].includes(job.status))
+    return;
   const stamp = now();
   const claim = await env.DB.prepare(
-    "UPDATE jobs SET status='running',lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND (lease_until IS NULL OR lease_until<?)",
+    "UPDATE jobs SET status='running',lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND status IN ('queued','running') AND (lease_until IS NULL OR lease_until<?)",
   )
     .bind(new Date(Date.now() + 12 * 60000).toISOString(), stamp, job.id, stamp)
     .run();
-  if (!claim.meta.changes)
+  if (!claim.meta.changes) {
+    const current = await env.DB.prepare(
+      "SELECT status,lease_until FROM jobs WHERE id=?",
+    )
+      .bind(job.id)
+      .first<{ status: string; lease_until: string | null }>();
+    if (
+      !current ||
+      ["waiting_user", "succeeded", "failed"].includes(current.status)
+    )
+      return;
     return {
       busy: true,
       retryAfter: Math.max(
         30,
-        Math.ceil((Date.parse(job.lease_until || stamp) - Date.now()) / 1000) +
-          5,
+        Math.ceil(
+          (Date.parse(current.lease_until || stamp) - Date.now()) / 1000,
+        ) + 5,
       ),
     };
+  }
   try {
     if (job.kind === "import") await readSegment(env, job);
     else if (job.kind === "resolve") await resolveSettings(env, job);
@@ -462,6 +514,23 @@ export async function processJob(env: Env, jobId: string) {
       else await resume(env, job, progress.completed, progress.message);
     } else throw new DomainError("JOB_KIND_INVALID");
   } catch (e) {
+    if (job.kind === "import") {
+      const sourceWorld = await getWorld(env, job.world_id);
+      if (sourceWorld.status !== "reading") throw e;
+      const pending = await env.DB.prepare(
+        "SELECT id FROM segments WHERE source_id=? AND status!='done' ORDER BY ordinal LIMIT 1",
+      )
+        .bind(sourceWorld.sourceId)
+        .first<{ id: string }>();
+      await pauseImport(
+        env,
+        job,
+        "processing",
+        e instanceof DomainError ? e.code : "IMPORT_PROCESSING_ERROR",
+        pending?.id || null,
+      );
+      return;
+    }
     const message =
       e instanceof DomainError
         ? `${e.code}: ${e.message}`

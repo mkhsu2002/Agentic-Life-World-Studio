@@ -7,6 +7,24 @@ const messages: Record<string, string> = {
   ORIGIN_FORBIDDEN: "無法從目前的頁面執行此操作，請回到 Studio 再試。",
   REVISION_CONFLICT:
     "世界已在另一個操作中更新。已重新讀取最新版本，請檢查內容後重試。",
+  IMPORT_NOTES_TOO_LONG:
+    "累積補充已超過 8,000 字元，請先在解析方向表單精簡內容，再繼續。",
+  IMPORT_BRIEF_REQUIRED: "請先確認匯入方向；不確定的欄位可以留白。",
+  IMPORT_REVIEW_INVALID: "這份確認對話的內容已更新，請重新整理後查看最新內容。",
+  IMPORT_REVIEW_REQUIRED: "閱讀有待確認的線索，請先完成確認對話。",
+  IMPORT_REVIEW_NOT_FOUND: "這份確認對話已更新，請重新整理後查看最新內容。",
+  IMPORT_REVIEW_STALE: "這份確認對話已更新，請重新整理後繼續。",
+  IMPORT_REVIEW_RESOLVED: "這份確認已經儲存，請查看最新閱讀進度。",
+  IMPORT_REVIEW_INCOMPLETE: "請為每一項敘述選擇處理方式，再繼續閱讀。",
+  IMPORT_REVIEW_NOT_PENDING: "這份確認已經處理，請查看最新閱讀進度。",
+  IMPORT_BRIEF_LOCKED: "原作已完成整理，請前往確認問答或對話調整設定。",
+  EVIDENCE_DECISIONS_INCOMPLETE: "請為每一項敘述選擇處理方式，再繼續閱讀。",
+  EVIDENCE_REPLACEMENT_INVALID:
+    "請從這個片段複製可核對的原文引句，或選擇作為作者補充。",
+  EVIDENCE_DECISION_REQUIRED: "請逐項確認每一條待核對的敘述。",
+  EVIDENCE_QUOTE_INVALID:
+    "這段引句無法在對應原文中找到，請從原文複製正確引句。",
+  EVIDENCE_QUOTE_MISSING: "請提供這個片段中的正確原文引句。",
   SOURCE_INCOMPLETE: "原作尚未完整閱讀，請先等候工作完成。",
   SOURCE_EMPTY: "沒有可讀取的原文，請提供完整文字或可存取的網址。",
   SOURCE_TOO_LARGE: "原作超過可接受的大小，請分割後再匯入。",

@@ -199,7 +199,7 @@ export async function enqueue(
 ) {
   const logicalKey = await sha256(JSON.stringify({ worldId, kind, payload }));
   const existing = await env.DB.prepare(
-    "SELECT id FROM jobs WHERE logical_key=? AND status IN ('queued','running')",
+    "SELECT id FROM jobs WHERE logical_key=? AND status IN ('queued','running','waiting_user')",
   )
     .bind(logicalKey)
     .first<{ id: string }>();
@@ -229,7 +229,7 @@ export async function enqueue(
     ]);
   } catch (error) {
     const replay = await env.DB.prepare(
-      "SELECT id FROM jobs WHERE logical_key=? AND status IN ('queued','running')",
+      "SELECT id FROM jobs WHERE logical_key=? AND status IN ('queued','running','waiting_user')",
     )
       .bind(logicalKey)
       .first<{ id: string }>();

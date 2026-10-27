@@ -20,6 +20,7 @@ import type {
   WorldDraft,
 } from "../shared/contracts";
 import { patch, post } from "./api";
+import { ImportBriefForm, ImportConversation } from "./import-dialogue";
 import { AuditList, JobList, date, statusName, type RunAction } from "./studio";
 
 type Props = {
@@ -28,6 +29,7 @@ type Props = {
   run: RunAction;
   busy: boolean;
   retry: (id: string) => void;
+  openImportReview: () => void;
 };
 const worldPath = (id: string) => `/api/worlds/${encodeURIComponent(id)}`;
 const localeNames: Record<Locale, string> = {
@@ -46,15 +48,19 @@ export function WorldPanels(props: Props) {
   if (props.tab === "release") return <Release {...props} />;
   return <Source {...props} />;
 }
-function Source({
-  detail: { world, source, jobs, audit },
-  run,
-  busy,
-  retry,
-}: Props) {
+function Source({ detail, openImportReview, run, busy, retry }: Props) {
+  const { world, source, jobs, audit } = detail;
   const [mode, setMode] = useState(world.mode);
   return (
     <div className="tab-content">
+      <ImportConversation
+        review={detail.importReview}
+        onOpen={openImportReview}
+        busy={busy}
+      />
+      {world.status === "reading" && (
+        <ImportBriefForm detail={detail} run={run} busy={busy} />
+      )}
       <div className="two-column">
         <section className="panel">
           <p className="eyebrow">THE ORIGINAL</p>
@@ -884,16 +890,41 @@ function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
     </div>
   );
 }
-function Chat({ detail: { world, messages }, run, busy }: Props) {
+function Chat({ detail, run, busy, openImportReview }: Props) {
+  const { world, messages } = detail;
   const [message, setMessage] = useState("");
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!message.trim() || world.status === "reading") return;
-    const ok = await run("傳送訊息", (d) =>
-      post(`${worldPath(world.id)}/chat`, {
-        message: message.trim(),
-        revision: d.world.revision,
-      }),
+    if (!message.trim()) return;
+    const ok = await run(
+      world.status === "reading" ? "儲存作者補充" : "傳送訊息",
+      (d) => {
+        if (d.world.status === "reading") {
+          const current = d.world.importBrief;
+          const notes = [current?.notes, message.trim()]
+            .filter(Boolean)
+            .join("\n\n");
+          if (notes.length > 8000)
+            throw new Error(
+              "作者補充累計超過 8,000 字元，尚未儲存。請先到「原作與世界」精簡既有補充，或縮短這次訊息後再試。",
+            );
+          return patch(`${worldPath(d.world.id)}/import-brief`, {
+            revision: d.world.revision,
+            recordVersion: d.world.recordVersion,
+            message: message.trim(),
+            brief: {
+              timeframe: current?.timeframe || "",
+              scope: current?.scope || "",
+              visualStyle: current?.visualStyle || "",
+              notes,
+            },
+          });
+        }
+        return post(`${worldPath(d.world.id)}/chat`, {
+          message: message.trim(),
+          revision: d.world.revision,
+        });
+      },
     );
     if (ok) setMessage("");
   }
@@ -909,8 +940,15 @@ function Chat({ detail: { world, messages }, run, busy }: Props) {
       <p className="muted">
         討論原作、修正誤讀，或補充你的決定。世界內容更新後，請重新確認受影響的視覺與翻譯。
       </p>
+      <ImportConversation
+        review={detail.importReview}
+        onOpen={openImportReview}
+        busy={busy}
+      />
       {world.status === "reading" && (
-        <p role="status">原作仍在閱讀中，完成全文分析後即可討論與調整設定。</p>
+        <p className="notice" role="status">
+          原作仍在閱讀中。你現在可以補充作者設定與閱讀方向；補充會保存到這份世界，並與原文證據分開記錄。需要確認的線索，請開啟上方確認對話。
+        </p>
       )}
       <div className="chat-messages" role="log" aria-label="世界對話">
         {!messages.length ? (
@@ -938,27 +976,41 @@ function Chat({ detail: { world, messages }, run, busy }: Props) {
           ))
         )}
       </div>
+      {world.status === "reading" && (
+        <p className="field-note" id="import-chat-limit" role="status">
+          作者補充已使用{" "}
+          {(world.importBrief?.notes.length || 0).toLocaleString()} / 8,000
+          字元。新訊息會接續保存；超過上限時，請先到「原作與世界」精簡補充。
+        </p>
+      )}
       <form className="chat-composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="chat-message">
           對話訊息
         </label>
         <textarea
           id="chat-message"
-          disabled={world.status === "reading"}
+          aria-describedby={
+            world.status === "reading" ? "import-chat-limit" : undefined
+          }
+          disabled={busy}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="告訴 Studio 你想調整的設定⋯"
+          placeholder={
+            world.status === "reading"
+              ? "補充作者設定、時間範圍或希望注意的線索⋯"
+              : "告訴 Studio 你想調整的設定⋯"
+          }
           rows={3}
           required
           maxLength={8000}
         />
         <button
           className="primary"
-          disabled={busy || !message.trim() || world.status === "reading"}
+          disabled={busy || !message.trim()}
           aria-label="傳送訊息"
         >
           <Send size={18} />
-          <span>傳送</span>
+          <span>{world.status === "reading" ? "儲存補充" : "傳送"}</span>
         </button>
       </form>
     </section>
