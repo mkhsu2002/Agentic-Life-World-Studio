@@ -1,28 +1,43 @@
 # Agentic Life World Studio
 
-A new repository created for the **Meta Global AI Developer Hackathon**.
+以 **Universal Text-to-Sandbox Engine** 將原作轉為可持續探索的世界。作者在內建 AI 的 Studio 後台匯入文本、確認世界與視覺設定，建立並部署公開網站；網站依核准的排程與預算自主運行，將探索成果、費用與異常回報 Studio。
 
-Our vision is to make many story worlds truly come alive: worlds that grow, evolve, and give rise to new life on their own.
+參賽方向：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World。
 
-## Vision
+## 產品流程
 
-Stories contain more than a sequence of scenes. They hold places, cultures, characters, relationships, and the seeds of entire ecosystems. Agentic Life World Zero aims to turn those seeds into living worlds, where AI agents build the foundations and help life, events, and relationships keep evolving.
+1. 匯入自己擁有或獲授權使用的原作：文字、公開 URL、Word 或 PDF。
+2. AI 擷取可追溯的世界事實，透過互動確認處理歧義、探索模式與視覺方向。
+3. 在 Studio 檢查世界網站預覽，確認後部署至正式公開 URL。
+4. 世界透過事件帳本與持久化狀態推進；旅行觀察者持續探索，產生影像與日誌。
+5. 網站自主更新，Studio 收到可驗證的進展與營運回報；週選明信片與美術集沿用已出版素材。
 
-## Target experience
+同一套引擎必須接受不同題材，世界內容不能寫死在程式或 Agent 提示詞中。推理角色規劃採 `muse-spark-1.3`，影像採 Muse Image。
 
-1. **Paste a story URL.** Start with a story you own or have permission to use.
-2. **Let AI agents build the world.** Agents work toward establishing its setting, characters, ecology, and visual style from the source story.
-3. **Let the world come alive.** Characters interact, events unfold, relationships change, and ecosystems grow and reproduce over time.
-4. **Adjust through conversation, if you want.** Dialogue is an optional way to guide or refine the world, rather than a required setup step.
+公開網站預設英文。場景、生物、物品等所有元素共用中央資料庫，保存穩定 ID、原名、各語系名稱、特色定義、來源與版本；後續以 Multi-Agent 翻譯、術語與語意審查支援事件驅動的即時多語系上線。
 
-These steps describe the intended product experience, not functionality available today.
+## 規格文件
 
-## Current status
+[產品規格與技術架構書（PRD 1.0）](docs/PRD.md) 涵蓋：
 
-This repository currently contains **initial documentation only**. The world-building agents, URL ingestion, visual generation, persistent simulation, and autonomous runtime have not been implemented. No API integrations or deployment are configured.
+- Studio 控制平面、公開網站執行平面、AI 建站與部署回報閉環。
+- 通用世界本體、證據、時間與空間、事件帳本、狀態一致性。
+- UTSP 1.0：八種根契約的可執行 Pydantic 參考程式碼與服務層驗證邊界。
+- 中央元素登錄、英文預設、名稱／特色的多語契約與語系發布版本。
+- Meta 模型角色、可組合 System Prompts、工具權限與故障處理。
+- 兩篇差異原作的 MVP 展示、驗收矩陣、時程、成本與發布門檻。
 
-## 繁體中文願景
+## 目前狀態
 
-為 Meta Global AI Developer Hackathon 建立的全新 repository。我們希望讓許多故事世界真正活起來，讓其中的生命、生態、事件與關係持續演化，自主成長、繁衍。
+截至 **2026-10-27**，repository 僅有文件與文件內的程式碼範例。Studio、來源匯入、模型接線、世界 runtime、建站部署、排程、公開網站與訂閱寄送均尚未實作或配置。PRD 的效能數字、時程與驗收表是目標，不是已驗證的產品能力。
 
-目標是貼入自己擁有或獲授權使用的故事 URL，讓 AI Agents 自動建立世界、設定、角色、生態與視覺風格；對話調整為選用。目前僅有初始文件，尚未實作運行引擎。
+官方模型與活動資訊查核記錄見 PRD；本專案尚未以真實 API 憑證進行 live smoke test，也未建立公開站點。
+
+## 實作與營運原則
+
+- 原作證據、推論、人類決策與模擬事件分開保存；正式啟動與部署需對應核准紀錄。
+- 模型提出提案；runtime 執行權限、規則、版本、交易與永久冪等驗證。
+- 公開網站只讀已審核的公開資料與發布 manifest；私人來源、提示詞與憑證留在部署端。
+- 每站有獨立的排程、預算與健康回報；關閉 Studio 不影響已啟用網站運作。
+- 未來發布需交叉驗證分支、dev/prod migration、API/functions、公開網站與實際資料契約。
+- docs-only 變更不應觸發完整 CI 或 production deploy；新增 workflow 時需落實最小觸發。
