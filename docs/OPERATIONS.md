@@ -2,6 +2,10 @@
 
 更新：2026-10-27。這是目前程式操作文件；live 驗收狀態見 RELEASE-v0.01.md。
 
+## 產品版本
+
+目前基準為 `v0.01`，版本來源見根目錄 `VERSION`；升版分類與例外以 [README 版本規則](../README.md#版本規則) 為準。每批程式碼發布增加 `0.01`，下一版 `v0.02`；純文字／文案編輯不升版。發布時同步產品版號與 Git tag，前後端部署仍須通過既有一致性驗證。npm package 的 SemVer 欄位供套件工具使用，對外產品版號採上述格式。
+
 ## 固定發布路徑
 
 所有程式碼更新先 commit／push GitHub，由 `.github/workflows/ci-deploy.yml` 部署 Cloudflare。不得使用本機 `wrangler deploy` 繞過已測 revision。`main` 依序部署 dev、驗證、部署 production、再次驗證；feature PR 先跑檢查。
