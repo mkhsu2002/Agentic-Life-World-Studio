@@ -51,7 +51,7 @@ python3 scripts/studio-access.py
 
 - 來源模型引句需對得上原文。純空白差異可定位回原始 span；其餘最多兩次修復，仍有疑義則建立 `waiting_user` 對話並保存候選，不能增加 coverage。使用者需逐項更正引句、改為作者補充或排除。作者補充標為 `origin=user` 且不保留偽引句；排除項也移除相關定義殘留。
 - 其他 import 解析問題同樣轉成待確認，提供原文、補充說明與續跑入口；私人 raw code 留在資料庫診斷，不直接當成介面錯誤。決定與 brief 以 metadata CAS、messages、audit、片段更新及 outbox 同批提交，並行送出只允許一次續跑。
-- Migration 0004 將既有 failed import 轉成待確認，不更動來源與 coverage。可由 private R2 最後已保存 repair checkpoint 恢復待核對項，不需重跑模型；無 checkpoint 則提供保留進度的重試對話。
+- Migration 0004 將世界仍在 reading 的既有 failed import 轉成待確認，不更動來源與 coverage。可由 private R2 最後已保存 repair checkpoint 恢復待核對項，不需重跑模型；無 checkpoint 則提供保留進度的重試對話。已編譯世界的舊完成失敗保留原重試入口；新版世界寫入與工作完成同一交易，避免產生 draft 卻無法解決的對話。
 - 工作失敗後由 Studio「重試」繼續 checkpoint；已處理來源段落不重讀。圖片成功後保存 asset checkpoint，後段 QA 重試不重新生圖。
 - JSON／型別／refusal／截斷不提交世界；Meta 請求不確定成本保留 usage ledger `uncertain`，不冒充未消耗。
 - world/element/terms/audit 在同一 D1 batch，revision＋lock_version compare-and-swap 防止內容與 metadata 互相覆蓋。

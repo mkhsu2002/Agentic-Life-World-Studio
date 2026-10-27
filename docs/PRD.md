@@ -5,7 +5,7 @@
 
 用途：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World
 
-文件狀態：完整產品設計基準（PRD 1.0）。2026-10-27 已開始 MVP v0.01；實際進度、已部署堆疊與驗收證據以 [README](../README.md) 和 [release 紀錄](RELEASE-v0.01.md) 為準。本文尚未勾選的完整願景與歷史時程不代表本版已完成。Python/Pydantic 為參考契約，本版 runtime 採 TypeScript/Zod、Hono 與 D1/R2/Queue。
+文件狀態：完整產品設計基準（PRD 1.0）。2026-10-27 已由 MVP v0.01 推進至 v0.02 解析對話與首次確認流程；實際進度、已部署堆疊與驗收證據以 [README](../README.md) 和 [release 紀錄](RELEASE-v0.02.md) 為準。本文尚未勾選的完整願景與歷史時程不代表本版已完成。Python/Pydantic 為參考契約，本版 runtime 採 TypeScript/Zod、Hono 與 D1/R2/Queue。
 
 > **把故事編譯成有記憶的世界，讓每一次探索都成為它的歷史。**
 

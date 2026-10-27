@@ -1,6 +1,6 @@
 # v0.02 解析對話與首次確認表單
 
-狀態：2026-10-27 實作中。使用者已明確要求遇到解析疑義時交互確認並續跑，不再直接失敗。沿用既有部署工作流、測試與資料契約，僅補專案特定流程。
+狀態：2026-10-27 程式、測試與 GitHub dev／production 部署完成；IP 的疑義仍待作者確認。使用者已明確要求遇到解析疑義時交互確認並續跑，不再直接失敗。沿用既有部署工作流、測試與資料契約，僅補專案特定流程。
 
 ## 設計
 
@@ -10,13 +10,13 @@
 
 ## 交付與驗證
 
-- [ ] 先寫引句處理回歸：有效原文、替代引句、作者補充、排除、未知／缺少決定。
-- [ ] Migration 0004 新表、waiting_user 去重與既有失敗 import 復原；保留來源、進度、帳本。
-- [ ] Queue checkpoint 與使用者決定交易；重複／並行決定只續跑一次，待確認不消耗模型。
-- [ ] Owner API 回傳待確認內容與建議；brief 儲存／解決疑義時同步 messages、audit、outbox。
-- [ ] Studio 首次表單、待確認視窗、自動提示、保存／返回／續跑及無障礙。
-- [ ] 先規格再品質複審，完整 tests/typecheck/build/audit。
-- [ ] VERSION／Studio／API／README／release 版本同步為 v0.02。
-- [ ] Push main → GitHub 自動 migration／deploy dev 及 production；交叉讀回 migration、binding、程式 commit、live 待確認與前端。
+- [x] 先寫引句處理回歸：有效原文、替代引句、作者補充、排除、未知／缺少決定。
+- [x] Migration 0004 新表、waiting_user 去重與既有失敗 import 復原；保留來源、進度、帳本。
+- [x] Queue checkpoint 與使用者決定交易；重複／並行決定只續跑一次，待確認不消耗模型。
+- [x] Owner API 回傳待確認內容與建議；brief 儲存／解決疑義時同步 messages、audit、outbox。
+- [x] Studio 首次表單、待確認視窗、自動提示、保存／返回／續跑及無障礙。
+- [x] 先規格再品質複審，完整 tests/typecheck/build/audit。
+- [x] VERSION／Studio／API／README／release 版本同步為 v0.02。
+- [x] Push main → GitHub 自動 migration／deploy dev 及 production；交叉讀回 migration、binding、程式 commit、live 待確認與前端。
 
 本次不代替作者決定 NEO BABYLON 的疑義，不把 waiting_user 視為完整匯入或已確認世界。公開網站 DTO 不包含私人表單、解析候選、原文或對話。

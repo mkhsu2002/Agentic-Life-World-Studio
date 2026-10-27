@@ -4,7 +4,7 @@
 
 ## MVP v0.02
 
-正式 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 已部署，私人登入密碼可由下方安全指令複製。NEO BABYLON 全文已保存並在背景分析，校準與公開世界發布尚待作者完成。
+正式 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 已部署，私人登入密碼可由下方安全指令複製。NEO BABYLON 全文已保存，解析進度與待確認項目可於 Studio 查看；完成世界、視覺與語系校準後再發布公開網站。
 
 v0.02 新增首次解析方向表單、閱讀建議與待確認對話。引句疑義可更正、改為作者補充或排除；其他解析問題保留進度並請求使用者確認。已失敗的舊匯入會轉成可續跑的對話，不需要重傳原作。
 
