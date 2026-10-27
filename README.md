@@ -4,7 +4,7 @@
 
 ## MVP v0.02
 
-正式 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 已部署，私人登入密碼可由下方安全指令複製。NEO BABYLON 全文已保存，解析進度與待確認項目可於 Studio 查看；完成世界、視覺與語系校準後再發布公開網站。
+依 v0.02 release 紀錄，正式 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 已部署，私人登入密碼可由下方安全指令複製；本次設計文件編修未重新查核線上狀態。完成世界、視覺與語系校準後再發布公開網站。
 
 v0.02 新增首次解析方向表單、閱讀建議與待確認對話。引句疑義可更正、改為作者補充或排除；其他解析問題保留進度並請求使用者確認。已失敗的舊匯入會轉成可續跑的對話，不需要重傳原作。
 
@@ -18,7 +18,13 @@ v0.02 新增首次解析方向表單、閱讀建議與待確認對話。引句�
 - **翻譯校準：**en／zh-Hant／ja 的名稱、特色與介紹，共用元素 ID；語意 QA、作者修訂、內容 hash、過期攔截及核准。
 - **網站發布：**私人完整頁面預覽、候選 hash、圖片／DTO／renderer 公開讀回，通過後切換 active release；失敗保留舊站。
 
-故事內容不寫死於程式或提示詞。開發 IP `NEO BABYLON WORLD` 原文僅存私人快照／R2，不提交 Git。
+故事內容不寫死於程式或提示詞。測試 IP 留待 Studio 框架完成後驗證，本輪不繼續解析、處理其疑義或核准內容。來源原文不提交 Git。
+
+## v0.03 設計待確認
+
+下一版將以「世界總架構師先理解、專業角色細化、獨立忠實度審核」重整初始化流程，採忠實補全：核心不能自行更改，補全與後續生成範圍須在 Studio 初始審核；前台只呈現核准後的世界。
+
+先確認 [八個世界模組與兩組運行設定](docs/design/WORLD-FRAMEWORK-v0.03.md)，再實作。對應 [資料契約](docs/design/WORLD-DATA-CONTRACT-v0.03.md) 與 [Agent 職責／流程](docs/design/AGENT-WORKFLOW-v0.03.md) 均為設計草案，尚未修改 runtime、schema、API、prompt 或部署；現有 v0.02 不應被描述為已具備這套重構。
 
 ## 版本規則
 
@@ -30,7 +36,7 @@ v0.02 新增首次解析方向表單、閱讀建議與待確認對話。引句�
 - 發布前同步更新 `VERSION`、Studio 顯示、API 版本、README 與 release 紀錄，並建立對應 Git tag；不修改歷史版號或移動既有 tag。
 - 產品版本與世界內容 `revision`、API 資料契約版本分別管理；文件更新後 Git HEAD 可較 deployed commit 更新，以部署讀回的程式 commit 判斷正式環境版本。
 
-本次解析對話流程升為 **v0.02**；下一批程式碼修改從 **v0.03** 開始。純文件變更沿用既有 GitHub paths 規則，不觸發完整建置或正式部署。
+目前解析對話流程版本為 **v0.02**；下一批程式碼修改從 **v0.03** 開始。純文件變更沿用既有 GitHub paths 規則，不觸發完整建置或正式部署。
 
 ## 開發
 
@@ -65,8 +71,8 @@ python3 scripts/studio-access.py
 
 ## 範圍與文件
 
-- [PRD 1.0](docs/PRD.md)：完整產品願景與未來驗收基準。
-- [v0.02 解析對話計畫](docs/plans/2026-10-27-v002-import-dialogue.md)：本輪修正與驗收。
+- [PRD 1.1 設計草案](docs/PRD.md)：完整願景與 v0.03 待確認方向；歷史參考契約已明確標註。
+- [v0.02 解析對話計畫](docs/plans/2026-10-27-v002-import-dialogue.md)：已發布 v0.02 的歷史修正與驗收計畫。
 - [v0.02 release](docs/RELEASE-v0.02.md)：目前發布與驗證狀態。
 - [v0.01 實作計畫](docs/plans/2026-10-27-mvp-v001.md)：歷史首版切片與堆疊取捨。
 - [v0.01 release](docs/RELEASE-v0.01.md)：歷史首版驗證快照。
