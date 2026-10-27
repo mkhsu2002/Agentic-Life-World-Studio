@@ -1,4 +1,4 @@
-# Agentic Life World Zero
+# Agentic Life World Studio
 
 A new repository created for the **Meta Global AI Developer Hackathon**.
 
