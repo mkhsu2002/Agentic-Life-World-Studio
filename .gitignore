@@ -13,3 +13,15 @@ service-account*.json
 
 # macOS
 .DS_Store
+
+# Runtime and private IP inputs
+node_modules/
+dist/
+.wrangler/
+.private/
+coverage/
+playwright-report/
+test-results/
+
+__pycache__/
+*.pyc

@@ -1,43 +1,58 @@
 # Agentic Life World Studio
 
-以 **Universal Text-to-Sandbox Engine** 將原作轉為可持續探索的世界。作者在內建 AI 的 Studio 後台匯入文本、確認世界與視覺設定，建立並部署公開網站；網站依核准的排程與預算自主運行，將探索成果、費用與異常回報 Studio。
+將原作轉為可確認、可追蹤並能發布為公開網站的世界。作者在私人 AI Studio 匯入原作，校準元素、世界設定、視覺方向與翻譯，再預覽並發布世界網站。
 
-參賽方向：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World。
+## MVP v0.01
 
-## 產品流程
+本版已建立 React Studio、Hono API、中央元素資料庫、來源分段工作流、世界問答／視覺校準、英文預設網站，以及英文／繁中／日文翻譯校準。實際部署與驗證狀態見 [release 紀錄](docs/RELEASE-v0.01.md)，不能將功能存在視為 live 驗收已完成。
 
-1. 匯入自己擁有或獲授權使用的原作：文字、公開 URL、Word 或 PDF。
-2. AI 擷取可追溯的世界事實，透過互動確認處理歧義、探索模式與視覺方向。
-3. 在 Studio 檢查世界網站預覽，確認後部署至正式公開 URL。
-4. 世界透過事件帳本與持久化狀態推進；旅行觀察者持續探索，產生影像與日誌。
-5. 網站自主更新，Studio 收到可驗證的進展與營運回報；週選明信片與美術集沿用已出版素材。
+- **私人 Studio：**登入、世界列表、AI 對話、來源覆蓋進度、工作重試及 audit。
+- **完整匯入：**貼文、瀏覽器端 Word/PDF 擷取、公開 URL、具 service-account 授權的 Google Docs 全 tabs；私人連接器取得的內容可經 owner-only bridge 進入相同 pipeline。
+- **元素登錄：**穩定 element／feature IDs，原名、三語名稱、特色、原文引句、作者校準與版本。
+- **世界確認：**回答高影響問題，模型將明確決定套回設定；未完成閱讀、決策或視覺核准時阻止確認。
+- **視覺校準：**三個來源相容風格方向、真實 Muse Image 預覽、視覺 QA、作者回饋與同版本核准。
+- **翻譯校準：**en／zh-Hant／ja 的名稱、特色與介紹，共用元素 ID；語意 QA、作者修訂、內容 hash、過期攔截及核准。
+- **網站發布：**私人完整頁面預覽、候選 hash、圖片／DTO／renderer 公開讀回，通過後切換 active release；失敗保留舊站。
 
-同一套引擎必須接受不同題材，世界內容不能寫死在程式或 Agent 提示詞中。推理角色規劃採 `muse-spark-1.3`，影像採 Muse Image。
+故事內容不寫死於程式或提示詞。開發 IP `NEO BABYLON WORLD` 原文僅存私人快照／R2，不提交 Git。
 
-公開網站預設英文。場景、生物、物品等所有元素共用中央資料庫，保存穩定 ID、原名、各語系名稱、特色定義、來源與版本；後續以 Multi-Agent 翻譯、術語與語意審查支援事件驅動的即時多語系上線。
+## 開發
 
-## 規格文件
+需求：Node.js 24+、npm、Python 3.11+（僅安全設定與 owner 測試工具）。
 
-[產品規格與技術架構書（PRD 1.0）](docs/PRD.md) 涵蓋：
+```sh
+npm ci
+npm run check
+```
 
-- Studio 控制平面、公開網站執行平面、AI 建站與部署回報閉環。
-- 通用世界本體、證據、時間與空間、事件帳本、狀態一致性。
-- UTSP 1.0：八種根契約的可執行 Pydantic 參考程式碼與服務層驗證邊界。
-- 中央元素登錄、英文預設、名稱／特色的多語契約與語系發布版本。
-- Meta 模型角色、可組合 System Prompts、工具權限與故障處理。
-- 兩篇差異原作的 MVP 展示、驗收矩陣、時程、成本與發布門檻。
+`npm run dev` 啟動 Vite；API 使用 Wrangler。部署憑證與模型 key 由安全儲存按需注入，不建立包含 secret 的 repo 檔案。正式程式碼發布只走 GitHub 工作流。
 
-## 目前狀態
+## 部署
 
-截至 **2026-10-27**，repository 僅有文件與文件內的程式碼範例。Studio、來源匯入、模型接線、世界 runtime、建站部署、排程、公開網站與訂閱寄送均尚未實作或配置。PRD 的效能數字、時程與驗收表是目標，不是已驗證的產品能力。
+**程式碼更新 → push GitHub → checks → dev migrations/API/frontend → dev readback → production migrations/API/frontend → production readback。**
 
-官方模型與活動資訊查核記錄見 PRD；本專案尚未以真實 API 憑證進行 live smoke test，也未建立公開站點。
+[GitHub Actions](.github/workflows/ci-deploy.yml) 以檔案 paths 與 concurrency 限制觸發。README、docs、audit 等 docs-only 修改不觸發完整 CI 或 production deploy；無 daily build 或分鐘級 polling。GitHub runner 僅持部署 token，Meta key 留在 Cloudflare secret。
 
-## 實作與營運原則
+設定 Meta key（隱藏輸入，寫入本機 Keychain 與 Cloudflare dev／production，不寫 repo）：
 
-- 原作證據、推論、人類決策與模擬事件分開保存；正式啟動與部署需對應核准紀錄。
-- 模型提出提案；runtime 執行權限、規則、版本、交易與永久冪等驗證。
-- 公開網站只讀已審核的公開資料與發布 manifest；私人來源、提示詞與憑證留在部署端。
-- 每站有獨立的排程、預算與健康回報；關閉 Studio 不影響已啟用網站運作。
-- 未來發布需交叉驗證分支、dev/prod migration、API/functions、公開網站與實際資料契約。
-- docs-only 變更不應觸發完整 CI 或 production deploy；新增 workflow 時需落實最小觸發。
+```sh
+python3 scripts/configure-meta.py
+```
+
+將此 Mac 安全儲存的 Studio 密碼複製至剪貼簿，再貼至登入頁：
+
+```sh
+python3 scripts/studio-access.py
+```
+
+詳細操作、環境與恢復方式見 [OPERATIONS](docs/OPERATIONS.md)。
+
+## 範圍與文件
+
+- [PRD 1.0](docs/PRD.md)：完整產品願景與未來驗收基準。
+- [v0.01 實作計畫](docs/plans/2026-10-27-mvp-v001.md)：本輪切片與堆疊取捨。
+- [v0.01 release](docs/RELEASE-v0.01.md)：真實驗證結果與待完成事項。
+
+v0.01 採 React/Vite、TypeScript/Hono、Cloudflare Workers/D1/R2/Queues，以 Zod 執行本版資料契約；PRD 內 Python/Pydantic/PostgreSQL 為完整架構參考，不是本版已部署的 runtime。推理固定 `muse-spark-1.3`，影像固定 `muse-image-1.0`。
+
+本版聚焦建立、校準與發布。持續世界模擬、每日自主攝影、訂閱寄送與美術集仍屬後續範圍，未啟用這些功能。Studio 關閉不會中止已持久化的匯入、翻譯或影像工作。

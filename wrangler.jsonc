@@ -1,0 +1,104 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentic-world-studio",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-10-27",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/media/*"],
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "limits": {
+    "cpu_ms": 30000,
+  },
+  "env": {
+    "dev": {
+      "name": "agentic-world-studio-dev",
+      "vars": {
+        "ENVIRONMENT": "dev",
+        "BUILD_REVISION": "development",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "agentic-world-studio-dev",
+          "database_id": "4e96e9b5-649e-4724-8ef0-139ab38c6069",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "STORAGE",
+          "bucket_name": "agentic-world-studio-dev",
+        },
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "JOBS",
+            "queue": "agentic-world-studio-dev",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "agentic-world-studio-dev",
+            "max_batch_size": 1,
+            "max_batch_timeout": 1,
+            "max_concurrency": 1,
+            "max_retries": 2,
+          },
+        ],
+      },
+      "triggers": {
+        "crons": ["17 5 * * *"],
+      },
+    },
+    "production": {
+      "name": "agentic-world-studio-production",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "BUILD_REVISION": "development",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "agentic-world-studio-production",
+          "database_id": "ce752fbd-4bf7-4f48-8d22-270e32d9208b",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "STORAGE",
+          "bucket_name": "agentic-world-studio-production",
+        },
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "JOBS",
+            "queue": "agentic-world-studio-production",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "agentic-world-studio-production",
+            "max_batch_size": 1,
+            "max_batch_timeout": 1,
+            "max_concurrency": 1,
+            "max_retries": 2,
+          },
+        ],
+      },
+      "triggers": {
+        "crons": ["17 5 * * *"],
+      },
+    },
+  },
+}
