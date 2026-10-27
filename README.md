@@ -4,6 +4,8 @@
 
 ## MVP v0.01
 
+正式 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 已部署，私人登入密碼可由下方安全指令複製。NEO BABYLON 全文已保存並在背景分析，校準與公開世界發布尚待作者完成。
+
 本版已建立 React Studio、Hono API、中央元素資料庫、來源分段工作流、世界問答／視覺校準、英文預設網站，以及英文／繁中／日文翻譯校準。實際部署與驗證狀態見 [release 紀錄](docs/RELEASE-v0.01.md)，不能將功能存在視為 live 驗收已完成。
 
 - **私人 Studio：**登入、世界列表、AI 對話、來源覆蓋進度、工作重試及 audit。
