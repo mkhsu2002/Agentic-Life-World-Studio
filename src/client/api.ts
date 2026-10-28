@@ -113,7 +113,11 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   } | null;
   if (!response.ok)
     throw new ApiError(
-      messages[body?.error?.code || ""] ||
+      (path.startsWith("/api/studio/") && body?.error?.code !== "UNAUTHORIZED"
+        ? body?.error?.message && body.error.message !== body.error.code
+          ? body.error.message
+          : "這次操作尚未完成，已保存的內容仍保留。請稍後重試。"
+        : messages[body?.error?.code || ""]) ||
         body?.error?.message ||
         "無法完成此操作，請稍後再試。",
       body?.error?.code || "REQUEST_FAILED",

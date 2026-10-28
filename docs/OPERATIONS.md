@@ -1,53 +1,88 @@
-# World Studio v0.06 操作與部署
+# World Studio v0.07｜操作與部署
 
-> 狀態：2026-10-27 封存。本文件為重新規劃前的既有文件，僅供查核既有資源與歷史版本；不代表新產品需求或繼續開發的授權。新規劃以 `docs/PRD.md` 的待確認提案為準。
+本文件描述目前對話流程及部署契約。外部環境查核結果只在實際讀回後記錄；開發測試不代表作者已核准任何正式世界。
 
-狀態：2026-10-27，六項流程操作規格；線上驗收見 [RELEASE-v0.06](RELEASE-v0.06.md)。舊版操作已[封存](archive/OPERATIONS-v0.05.md)。目前產品 `0.06`、npm `0.0.6`、API `utsp-studio/0.06`，下一批程式碼 `0.07`；純文件不升版。
+## Studio 操作
 
-## 匯入、確認與發布
+正式入口：[World Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/)。私人單一作者、繁中對話；公開網站預設英文。
 
-1. 貼文字、上傳文字型 PDF／DOCX 或輸入公開 URL。最多 1,000,000 字元／4 MiB，逐段保存原文。私人 Google Doc 仍需部署端存取權；無完整掃描 OCR 或全文件內嵌圖片擷取保證。
-2. 補上代表性的私人參考圖：PNG／JPEG／WebP，最多六張、單張 5 MiB、合計 15 MiB，含上限。API JSON 上限 28 MiB 容納 Base64／原文。圖片選填，無像素不宣稱已讀畫風；同圖重傳能修復私有物件。
-3. 新匯入自動閱讀六項相關線索，再產出六段簡報及一個視覺方向，不要求先填方向、物種、地點、角色關係或完整世界表。
-4. 在「世界確認」讀 AI 草稿。只有必要裁定才需要回答；「採用建議」是作者明確操作。可直接改六段或用 AI 對話補充，對話不會代填裁定答案或核准。
-5. 有修改先儲存；無修改可直接勾選本人確認並送出。零問題合法。設定核准綁定 revision／recordVersion／briefHash，保存不可變 snapshot、approval 與 audit；舊畫面不能批准新內容。
-6. 到視覺頁產生整體世界或選定已知元素的試稿，檢視 QA 與實際圖片，再由本人核准。AI 預填方向不等於影像已核准。
-7. 設定及同版本試稿都核准後，回「世界確認」啟用。改內容或圖片會清除舊核准並使舊翻譯失效。
-8. 生成 en／zh-Hant／ja 譯文、語意 QA、作者校準及本人核准；修改後重新審查。新簡報的公開介紹依已核准基本樣貌改寫，私有指示／裁定／證據不能公開。
-9. 建立私人網站預覽、檢查所有選定語系，再發布相同候選。改 slug／語系／世界或校準內容後重新預覽。公開預設英文。
+1. 建立對話，貼全文、網址或上傳原稿／圖片。文件上限 25 MiB，圖片單張 5 MiB、每批六張；六張大圖分別上傳，turn 只傳儲存識別。
+2. 等總監整理原著核心及五個創作面向。閱讀時仍可補充或取消，不需要填表。
+3. 討論修改後說「採用這個方向」，或使用訊息內採用按鈕。核准世界補全候選，挑選實際視覺試稿。
+4. 說「幫我製作網站」，在同一對話查看獨立版型的私人預覽。採用設計不等於公開。
+5. 明確說「發布網站」。只有同一核准候選完成 GitHub／Cloudflare／公開讀回驗證才回覆正式網址。
+6. 自主更新保持停用。需另外指定頻率、創作範圍及呼叫次數上限，再確認政策；可隨時說「停止自主更新」。
 
-## 舊世界與失敗恢復
-
-- 舊原文、核准與發布快照不刪除。既有工作 payload 保持原版本；沒有背景遷移或自動重跑。舊未核准世界由本人按「用六項重新整理」才改用 0.06，新簡報須重新本人核准。
-- 新簡報保存 `worlds.document_json.brief`／`briefApproval`，新增 `briefHash` 與 `/brief`、`/brief-approval` API；沿用 migrations 0001–0005，不新增 SQL migration。兩環境仍必須同步部署新 Worker／前端，不可只更新前端。
-- 六項初始化 reader→editor→visual→fidelity，每 delivery 最多一個模型呼叫。角色結果先落 R2 receipt，再更新原用量帳本及 checkpoint；重試沿用成功結果，不重付有效已存解析。每個原作片段只取少量與畫面／敘述／界線有關的線索，既有詳細萃取不成為新簡報輸入。
-- 初始化格式／來源／技術問題轉成可恢復處理對話，保留閱讀與用量紀錄；不代替作者裁定。無效 checkpoint 及其後依賴會失效重整，不能當作已驗證來源。
-- 最後簡報／元素／source coverage／工作完成／audit 同批 CAS 提交。作者並行補充、圖片變更或內容修訂不能被背景結果覆寫。
-- 既有視覺生成及 QA checkpoint 延用；翻譯沿用現行執行流程，尚未納入六項解析的每 delivery 單角色及相同的所有故障成本保證。成本不確定時保留 ledger uncertain，不宣稱零消耗。
-- 私人原文、圖片、簡報與核准都不能匿名讀取。公開路由只使用已核准 release DTO；中央元素庫可為空，不以虛構元素補足流程。
+舊原檔與公開快照保留在原資料結構，不自動重跑或變成新核准。可從資料抽屜複製舊原文到新對話，作者送出後才開始新工作。
 
 ## 安全設定
 
 ```sh
 python3 scripts/configure-meta.py
 python3 scripts/studio-access.py
+python3 scripts/configure-github-app.py
 ```
 
-第一個工具隱藏輸入 provider key，按需寫入 macOS Keychain 與 Cloudflare dev／production MODEL_API_KEY，不寫 repo、shell history 或明文參數；第二個只將 Studio 密碼複製至剪貼簿。Studio 使用 HttpOnly／SameSite session、Origin 檢查與登入限流；目前為單 owner，不宣稱 SaaS 多租戶已實作。provider 錯誤依實際 HTTP／code 診斷，不依 key 外觀判定。
+Meta 工具隱藏輸入，存入 macOS Keychain 並以 stdin 套用 Worker secret；不接受聊天回覆、repo `.env` 或命令列明文存放 key。密碼工具只複製至剪貼簿。
 
-## GitHub 發布與雙環境驗證
+GitHub App 工具啟動本機回呼頁面，由作者親自確認建立私人 App，安裝只選 `mkhsu2002/Agentic-Life-World-Studio`。App 需要 Contents／Pull requests／Actions write、Checks read：Actions write 僅用於明確重試已失敗的正式部署。工具驗證單一 repository 後才把 PKCS8 private key 存入 Keychain 及 dev／production。個人 gh token 不注入 Worker。Manifest 的 webhook 使用公開 HTTPS 網址且保持停用；本機回呼只接收作者建立及安裝的結果。
 
-`main` push → checks → dev migrations／Worker／frontend → readback → production 同步 → readback。禁止本機 wrangler deploy 繞過測過的 revision。docs-only 不啟動完整 CI／正式部署。
+必要 Worker secrets：`MODEL_API_KEY`、`SESSION_SECRET`、`STUDIO_PASSWORD`、`STUDIO_DEPLOY_TOKEN`。獨立網站 GitHub 流程另需 `GITHUB_APP_ID`、`GITHUB_APP_PRIVATE_KEY`、`GITHUB_INSTALLATION_ID`。只查名稱，不輸出值。
 
-環境為 agentic-world-studio-dev 與 agentic-world-studio-production，各自持 D1／R2／Queue。檢查 deployed BUILD_REVISION、ASSETS、DB、STORAGE、JOBS、MODEL_API_KEY、SESSION_SECRET、STUDIO_PASSWORD，以及 migrations 0001–0005。只查 secret 名稱，不列值。Meta secret 留在 Worker，GitHub runner 只用部署授權。
+GitHub Actions 只持有 `CLOUDFLARE_API_TOKEN` 與 `STUDIO_DEPLOY_TOKEN`；沒有模型、原稿或 Studio 密碼。後者與兩個 Worker 的同名 secret 必須一致，值留 Keychain `agentic.world.studio/deploy-callback-token`，透過 stdin 注入，不提交 repository。
+
+未連接 App 時仍可使用對話、核准、實際影像及私人網站預覽；建立 PR／合併／正式網站發布必須先完成連接。不能將本機 mock 當成已完成連接。
+
+## 資源與資料契約
+
+| 環境 | Worker | D1 | R2／Queue／Workflow |
+|---|---|---|---|
+| dev | agentic-world-studio-dev | 4e96e9b5-649e-4724-8ef0-139ab38c6069 | 同名 bucket／queue；agentic-world-studio-dev-operations |
+| production | agentic-world-studio-production | ce752fbd-4bf7-4f48-8d22-270e32d9208b | 同名 bucket／queue；agentic-world-studio-production-operations |
+
+Bindings：`ASSETS`、`DB`、`STORAGE`、`JOBS`、`OPERATIONS`。每次發布核對 `BUILD_REVISION`、產品版號及 `utsp-studio/0.07`，兩環境實際套用 migrations 0001–0007。0006 新增對話、來源、任務、核准、記憶及用量；0007 新增網站、發布、自主政策輪次、排程及旅程紀錄，不刪舊資料。
+
+Studio 新 API 在 `/api/studio/`，舊 `/api/worlds/` 留作歷史資料相容。turn 的原子冪等由 `studio_turns.client_message_id` 處理，不經舊版 `operation_keys` pending cache。SSE 事件可重播，snapshot 是一致的最新一千則，`events?before=` 取得更早訊息。總監若回傳英文說明或內部欄位詞，先保存候選再修訂供作者閱讀的繁中文案，不重讀長原稿；修訂不能改 action、識別、設定權限或營運政策，人工重試沿用已保存候選。首次閱讀若只回覆而未形成方向，使用既有理解補齊未核准提案，再回查原文；重複句段先修訂，不直接顯示。
+
+## GitHub → Cloudflare
+
+程式碼只能經 GitHub 自動部署。主程式分支驗證成功後部署 dev；合併 main 才依序套用 dev 與 production migration、Worker／資產及讀回。禁止本機 wrangler deploy。
+
+世界網站候選由 App 建立 `world/<site-id>`。生成內容限 `sites/<site-id>/layout.html`、`style.css`、`manifest.json` 與受控版本檔，不含原作或故事文案。無憑證 validate job 建置／測試／審核；可信 main 的 callback job 才持有部署回報 token。候選分支不部署正式 Worker。
+
+正式環境序列化合併，一次只允許一個網站進入 merging／deploying。過期基底保留相同版型、重設版本並重新驗證。main 的部署 metadata 驗證所有既有 site manifest，避免合併後接續部署漏回報先前候選。成功回報逐項比對 Worker revision、程式雜湊、作者發布訊息及目前世界內容，讀回所有公開語系與影像後才切換 active。
+
+CI 失敗回報在同一對話顯示，保留前一個 active。重試只重跑實際失敗的正式 Actions，或針對已部署版本重新讀回；不以空 commit／時間戳喚醒 CI。dev 不合併正式網站候選。
+
+`push`／PR paths 僅包含會影響程式、資料契約或正式輸出的檔案；README、docs、audit、handoff 等純文件不啟動完整 CI 或部署。同 repository 的開發／世界候選分支已由 push 驗證時，PR 不重跑相同完整驗證；其他分支及外部 PR 保留驗證。
+
+## 排程與成本
+
+自主更新使用 Workflows 的持久化延遲 → Queue，完成一輪才安排下一輪。延遲在 durable step 中保存，重播沿用相同步驟；已到期直接派送，不向平台要求睡眠至過去。未啟用世界不產生探索喚醒。用量預留涵蓋每次供應商請求，包含無法確認結果但可能計費的請求；有效收據重用不再扣新呼叫。
+
+既有每日一次 recovery cron 保留，兩環境約每月 60 次輕量觸發；無工作快速退出，補送 outbox／未派送或已到期但未建立輪次的喚醒，以及中斷的輪次，不執行完整 build、不作分鐘輪詢、不自行啟動作者未授權政策。每個啟用世界另有約 `30 × 24 / frequencyHours` 次有工作喚醒／月，失敗重試最多兩次。
+
+v0.07 以作者指定的模型呼叫次數作硬上限。沒有即時金額定價換算，不把呼叫次數誤稱金額；達上限暫停，不自動提高預算。郵件、訂閱、明信片及美術集尚未建立寄送排程。
+
+## 驗證
 
 ```sh
+npm ci
 npm run check
 npm run format:check
 npm audit --audit-level=moderate
+node scripts/validate-sites.mjs
 node scripts/verify-deployment.mjs <base-url> <full-commit-sha> <dev-or-production>
 ```
 
-部署驗證包含精確產品／contract／commit、必要資料表、私人 API 401、Studio HTML 與 JS bundle，再驗證新的六項 schema／核准失敗不寫入及 audit。操作驗收用中性 fixture，不代核准正式原作。
+發布前核對目標分支與 commit、兩環境 migration、Worker bindings／secret 名稱、API／前端相符，以及實際中性對話匯入、提案、核准、取消與 audit。正式世界不得自動核准或重跑。
 
-既有每日一次 recovery cron 只補送持久化 outbox，兩環境約 60 次輕量觸發／月，無工作即退出；新匯入由事件派 Queue。日常自主探索、訂閱／明信片寄送與美術集排程仍未啟用。
+瀏覽器 fixture：`/tests/fixtures/conversation-file-browser.html` 僅由本機 Vite 提供；實際 DOCX／PDF 各八張測試圖片，驗證六張真實參考、末段文字及兩張未納入警告。單元測試的 PDF 模擬不當作瀏覽器 canvas 驗證。
+
+公開輸出檢查涵蓋三語正文、導覽、SEO、ARIA、替代文字及資產。編輯及翻譯候選先檢查語系、必填文字及私人製作註記；不合格交回同角色修復，最多兩次，修後再獨立回查原文。既有錯誤文案建站時同樣接續修復，不重建核准世界或影像；預覽及發布再做一次最終檢查。不得公開來源、私人指示、核准證據、prompt 或模型選型。只有已確認快照能進公開 DTO；發布錯誤不能修改前一 active。
+
+### 本輪查核狀態
+
+- 本機核心／SQLite／瀏覽器驗證已執行；完整結果於發布後記入同輪查核文件。
+- GitHub App 連接由作者同步操作；完成後需實際驗證 installation 的單一 repository 範圍。
+- v0.07 dev／正式部署與線上讀回：尚待本輪 CI 完成，不以本機檢查代替。
