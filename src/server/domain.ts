@@ -89,6 +89,7 @@ export function revised(world: WorldDraft): WorldDraft {
     ...world,
     revision: world.revision + 1,
     status: "draft",
+    frameworkApproval: null,
     visualApproval: null,
     translations: Object.fromEntries(
       Object.entries(world.translations).map(([k, v]) => [

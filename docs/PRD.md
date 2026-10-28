@@ -5,7 +5,7 @@
 
 用途：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World
 
-文件狀態：v0.03 世界初始化重構設計待使用者確認，尚未實作；產品仍為 v0.02。世界框架、忠實補全、初始化資料結構與角色以本文件及下列三份設計草案為準。實際部署與歷史驗收證據以 [README](../README.md) 和 [v0.02 release](RELEASE-v0.02.md) 為準，本輪未重新查核 live 狀態。第 2.2 節 Pydantic 為 PRD 1.0 的歷史參考，尚未納入新設計；runtime 仍採 TypeScript/Zod、Hono 與 D1/R2/Queue。
+文件狀態：框架已確認，v0.03 優先實作世界解析、首次審核與視覺校準；完整產品願景仍有後續範圍。新流程 runtime 契約以 `src/shared/world-framework.ts` 及 [v0.03 release](RELEASE-v0.03.md) 為準；下列設計文件是邏輯規格，不是資料表逐一對照。產品部署、驗證與限制以 README／release 記錄為準。第 2.2 節 Pydantic 仍為 PRD 1.0 歷史參考，並非本版已部署 API。
 
 - [最小世界框架與初始審核](design/WORLD-FRAMEWORK-v0.03.md)：八個內容模組、共用元素／命名、兩組運行設定。
 - [世界資料契約草案](design/WORLD-DATA-CONTRACT-v0.03.md)：欄位依據、核心錨點、補全與生成範圍、本人核准及公開投影。
@@ -233,7 +233,7 @@ Registry 與 WorldSpec 的 entities/claims 使用同一組資料與 ID：WorldSp
 
 ### 1.6 本體：世界由什麼構成
 
-**v0.03 待確認設計：**八個世界內容模組為「識別與定位、時代與變遷、運作法則、空間與區域、環境與感官、生命與生態、文明文化與人造物、視覺規範」。命名與多語系元素庫貫穿各模組；受眾／觀察方式及起始狀態／變化邊界分開保存。AI 先填方案，未知與不適用均合法，不要求作者手動補齊所有欄位。詳見 [最小世界框架](design/WORLD-FRAMEWORK-v0.03.md)。下列技術本體用來承載這些內容，不能取代世界層級理解。
+**v0.03 已確認框架：**八個世界內容模組為「識別與定位、時代與變遷、運作法則、空間與區域、環境與感官、生命與生態、文明文化與人造物、視覺規範」。命名與多語系元素庫貫穿各模組；受眾／觀察方式及起始狀態／變化邊界分開保存。AI 先填方案，未知與不適用均合法，不要求作者手動補齊所有欄位。詳見 [最小世界框架](design/WORLD-FRAMEWORK-v0.03.md)。下列技術本體用來承載這些內容，不能取代世界層級理解。
 
 | 概念 | 必要資料 | 語義邊界 |
 |---|---|---|
@@ -353,7 +353,7 @@ Registry 與 WorldSpec 的 entities/claims 使用同一組資料與 ID：WorldSp
 
 ### 2.1 協定原則
 
-協定名稱：**UTSP — Universal Text-to-Sandbox Protocol**。下列 1.0 參考協定保留作歷史架構；v0.03 的新增邏輯結構以 [資料契約草案](design/WORLD-DATA-CONTRACT-v0.03.md) 為準，尚未成為已部署 API。待框架確認後才制定實際 schema 與 migration。
+協定名稱：**UTSP — Universal Text-to-Sandbox Protocol**。下列 1.0 參考協定保留作歷史架構；v0.03 的新增邏輯結構以 [資料契約草案](design/WORLD-DATA-CONTRACT-v0.03.md) 為準，實際 TypeScript/Zod 契約、migration0005 與 API 以程式及 release 為準。
 
 - 所有 ID 在同一 world namespace 中穩定；所有查詢同時限定 tenant、world、branch，UUID 不是存取授權。
 - `schema_version` 管格式；`spec_version` 管設定；`state_version` 管可變狀態。不可混用。
@@ -1629,7 +1629,7 @@ live 新建站時間若超出展示段落，後台顯示真實 job 狀態，同�
 
 ### 4.12 PRD 1.0 歷史參考程式驗證紀錄
 
-以下為 PRD 1.0 撰寫時的歷史快照，非目前產品驗收或本輪新增測試。v0.03 草案尚未實作，本輪未執行下列程式驗證；v0.02 實作與部署以 release 紀錄為準。
+以下為 PRD 1.0 撰寫時的歷史快照，非目前產品驗收或本輪新增測試。本輪未重跑下列歷史 Python 範例；v0.03 實作與部署以 RELEASE-v0.03.md 為準。
 
 2026-10-27 原紀錄：在 repo 外的隔離 Python 3.13 環境驗證：
 

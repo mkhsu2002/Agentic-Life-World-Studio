@@ -1,16 +1,16 @@
-# World Studio v0.02 操作與部署
+# World Studio v0.03 操作與部署
 
-更新：2026-10-27。這是目前程式操作文件；live 驗收狀態見 RELEASE-v0.02.md。
+更新：2026-10-27。這是目前程式操作文件；live 驗收狀態見 RELEASE-v0.03.md。
 
 ## 產品版本
 
-目前產品版本為 `v0.02`，版本來源見根目錄 `VERSION`；升版分類與例外以 [README 版本規則](../README.md#版本規則) 為準。每批程式碼發布增加 `0.01`，下一版 `v0.03`；純文字／文案編輯不升版。發布時同步產品版號與 Git tag，前後端部署仍須通過既有一致性驗證。npm package 的 SemVer 欄位供套件工具使用，對外產品版號採上述格式。
+目前產品版本為 `v0.03`，版本來源見根目錄 `VERSION`；升版分類與例外以 [README 版本規則](../README.md#版本規則) 為準。每批程式碼發布增加 `0.01`，下一版 `v0.04`；純文字／文案編輯不升版。發布時同步產品版號與 Git tag，前後端部署仍須通過既有一致性驗證。npm package 的 SemVer 欄位供套件工具使用，對外產品版號採上述格式。
 
 ## 固定發布路徑
 
 所有程式碼更新先 commit／push GitHub，由 `.github/workflows/ci-deploy.yml` 部署 Cloudflare。不得使用本機 `wrangler deploy` 繞過已測 revision。`main` 依序部署 dev、驗證、部署 production、再次驗證；feature PR 先跑檢查。
 
-Cloudflare 兩環境分離，名稱為 `agentic-world-studio-dev` 與 `agentic-world-studio-production`，各有獨立 Worker、D1、R2、Queue。資源 ID 在 wrangler.jsonc；API/data contract 為 `utsp-studio/0.02`。
+Cloudflare 兩環境分離，名稱為 `agentic-world-studio-dev` 與 `agentic-world-studio-production`，各有獨立 Worker、D1、R2、Queue。資源 ID 在 wrangler.jsonc；API/data contract 為 `utsp-studio/0.03`。
 
 GitHub 只持有最低必要部署 token（Workers Scripts、D1、Queues、R2 write 與 Account Settings read），無 Meta provider key。部署 token 帳號範圍受 Cloudflare 平台能力限制，僅用於本 repo 的發布流程；不要複製到 runtime。Meta key、Studio password、session secret 分別以 Worker secrets 注入。
 
@@ -40,18 +40,21 @@ python3 scripts/studio-access.py
 
 1. 貼文、上傳文字型 PDF／DOCX 或輸入公開 URL。PDF／DOCX 在瀏覽器擷取，再由伺服器保存正規化全文。
 2. 私人 Google Doc 需部署端 `GOOGLE_SERVICE_ACCOUNT` 並分享原始檔案給該帳號；未配置時介面會明確要求 Word/PDF／文字，不能繞過 ACL。Codex 已授權連接器讀取的測試快照可用 `studio-client.py import` 送進同一 pipeline，不複製連接器 OAuth。
-3. 匯入開始即可填寫年代／範圍／視覺方向／補充表單；欄位選填，確認後才會編譯世界。閱讀中可修訂或從 AI 對話追加作者補充，原文與作者資訊分開保存。
+3. 新匯入自動完成全局理解與專業細化，不必先填解析方向。舊方向表單僅作歷史相容與可選補充；AI 對話提出的修改進入待審模組，核准全部失效。
 4. 匯入最多 1,000,000 字元／4 MB，逐段處理，無截斷。來源與中間產物均在 private R2；只有已核准的公開 DTO 與被 active release 引用的圖可匿名讀取。
 5. 元素的原名與原文證據不可被校準文字覆寫；特色／英文名稱修正升世界 revision，取消舊視覺與語系核准。
-6. 完成世界問答並等待套用工作，再選風格、生成預覽、檢查視覺 QA、由本人核准。
-7. 翻譯先生成、語意 QA、作者編修與再審，再由本人核准。編修後的舊 QA 不可覆蓋新文字；不完整語系不可上線。
-8. 建立網站預覽、開啟英文及選定語系頁面檢查，再發布相同候選。slug／語系／世界或校準內容變動須重新預覽。
+6. 檢視八模組與核心、逐項決定補全與生成範圍、填寫重大事項的處理決定。先在視覺頁選定風格，回世界審核儲存，再勾選本人核准；接著產生視覺試稿、QA、本人核准，最後回世界審核啟用。每次設定修改都需重新核准，畫面舊 hash 不可核准新內容。
+7. 原作圖像在匯入或來源頁補上：PNG/JPEG/WebP，最多 6 張、每張 2 MB、合計 6 MB；圖片只限私人 Studio。未讀到圖片像素時不得宣稱已分析畫風。相同原圖重傳可修復私有物件，不改世界內容版本或偽造檢視狀態。
+8. 翻譯先生成、語意 QA、作者編修與再審，再由本人核准。編修後的舊 QA 不可覆蓋新文字；不完整語系不可上線。
+9. 建立網站預覽、開啟英文及選定語系頁面檢查，再發布相同候選。slug／語系／世界或校準內容變動須重新預覽。
 
 ## 失敗與恢復
 
-- 來源模型引句需對得上原文。純空白差異可定位回原始 span；其餘最多兩次修復，仍有疑義則建立 `waiting_user` 對話並保存候選，不能增加 coverage。使用者需逐項更正引句、改為作者補充或排除。作者補充標為 `origin=user` 且不保留偽引句；排除項也移除相關定義殘留。
+- v0.03 的來源閱讀先整理世界重要性。可定位的引句保留原始 span；無法驗證的細節以推論候選及警示保存，不冒充已驗證事實。核心錨點缺少可靠依據會形成阻擋事項，由作者在整合表單明確處理，不要求作者逐條修復微小引句差異。
+- v0.02 的既存待確認對話仍保留歷史處理入口，或由作者明確改用新框架；不自動續跑、排除或核准舊內容。
 - 其他 import 解析問題同樣轉成待確認，提供原文、補充說明與續跑入口；私人 raw code 留在資料庫診斷，不直接當成介面錯誤。決定與 brief 以 metadata CAS、messages、audit、片段更新及 outbox 同批提交，並行送出只允許一次續跑。
 - Migration 0004 將世界仍在 reading 的既有 failed import 轉成待確認，不更動來源與 coverage。可由 private R2 最後已保存 repair checkpoint 恢復待核對項，不需重跑模型；無 checkpoint 則提供保留進度的重試對話。已編譯世界的舊完成失敗保留原重試入口；新版世界寫入與工作完成同一交易，避免產生 draft 卻無法解決的對話。
+- Migration 0005 新增 world_snapshots、analysis_checkpoints、source_images；不修改既有來源、世界核准或啟動舊工作。所有新核准用 CAS、內容 hash、不可變 snapshot、approval 與 audit 同交易提交。
 - 工作失敗後由 Studio「重試」繼續 checkpoint；已處理來源段落不重讀。圖片成功後保存 asset checkpoint，後段 QA 重試不重新生圖。
 - JSON／型別／refusal／截斷不提交世界；Meta 請求不確定成本保留 usage ledger `uncertain`，不冒充未消耗。
 - world/element/terms/audit 在同一 D1 batch，revision＋lock_version compare-and-swap 防止內容與 metadata 互相覆蓋。
@@ -67,6 +70,6 @@ npm run check
 npm audit --audit-level=moderate
 ```
 
-CI 另執行 `scripts/verify-deployment.mjs <base-url> <commit-sha> <environment>`，核對 deployed revision、schema、private API 401、Studio HTML 與 JS bundle。
+CI 另執行 `scripts/verify-deployment.mjs <base-url> <commit-sha> <environment>`，核對 deployed revision、產品版號、資料契約、migration0005 所需資料表、private API 401、Studio HTML 與 JS bundle。
 
 瀏覽器只在必要的介面驗收使用 FlyPig 專屬 lane；本 repo 不因測試 IP 名稱自動切換 M.K. Said 身分。設定與部署優先現有 CLI／API。

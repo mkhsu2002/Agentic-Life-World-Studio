@@ -78,6 +78,7 @@ beforeEach(() => {
   sqlite.exec(readFileSync("migrations/0002_job_keys.sql", "utf8"));
   sqlite.exec(readFileSync("migrations/0003_active_jobs.sql", "utf8"));
   sqlite.exec(readFileSync("migrations/0004_import_dialogue.sql", "utf8"));
+  sqlite.exec(readFileSync("migrations/0005_world_framework.sql", "utf8"));
   const db = {
     prepare: (sql: string) => new Statement(sql),
     batch: async (statements: Statement[]) => {
@@ -268,6 +269,14 @@ it("rejects a stale website preview when another world now owns the slug", async
     introduction: "A world",
     elements: { e: { name: "Place", definition: "A place", features: {} } },
     issues: [],
+    approvedAt: "now",
+  };
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const { frameworkHash } = await import("../src/server/world-framework");
+  w.framework = frameworkFixture();
+  w.frameworkApproval = {
+    hash: await frameworkHash(w),
+    revision: w.revision,
     approvedAt: "now",
   };
   await saveWorld(env, w, 1, "seed", "seed");
@@ -471,6 +480,14 @@ it("grants one publisher exclusive ownership of a website preview", async () => 
     issues: [],
     approvedAt: "now",
   };
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const { frameworkHash } = await import("../src/server/world-framework");
+  w.framework = frameworkFixture();
+  w.frameworkApproval = {
+    hash: await frameworkHash(w),
+    revision: w.revision,
+    approvedAt: "now",
+  };
   await saveWorld(env, w, 1, "seed", "seed");
   sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id=?").run("s");
 
@@ -581,6 +598,7 @@ async function seedImport() {
     put: vi.fn(async (key: string, data: string) => {
       objects.set(key, data);
     }),
+    delete: vi.fn(async (key: string) => objects.delete(key)),
   } as unknown as R2Bucket;
   env.JOBS = { send: vi.fn(async () => {}) } as unknown as Queue;
   env.MODEL_API_KEY = "test-key";
@@ -1290,4 +1308,407 @@ it("does not cache a compilation that lacks the three style directions", async (
   expect(
     sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
   ).toMatchObject({ status: "waiting_user" });
+});
+
+it("requires explicit exact-content author approval before visual calibration", async () => {
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const { frameworkHash } = await import("../src/server/world-framework");
+  const w = await getWorld(env, "w");
+  w.framework = frameworkFixture();
+  w.styles = [
+    {
+      id: "style",
+      name: "Ink",
+      description: "Ink",
+      medium: "ink",
+      palette: ["#222222"],
+      lighting: "soft",
+      materials: [],
+      forbidden: [],
+      evidence: [],
+    },
+  ];
+  w.selectedStyleId = "style";
+  await saveWorld(env, w, 1, "seed", "seed");
+  const headers = {
+    Cookie: await cookie(),
+    "Content-Type": "application/json",
+  };
+  const denied = await app.request(
+    "/api/worlds/w/visual-previews",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ revision: 1, styleId: "style", elementId: "e" }),
+    },
+    env,
+  );
+  expect(denied.status).toBe(409);
+  expect(
+    ((await denied.json()) as { error: { code: string } }).error.code,
+  ).toBe("FRAMEWORK_NOT_APPROVED");
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  const stored = await getWorld(env, "w");
+  const stale = await app.request(
+    "/api/worlds/w/framework-approval",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        recordVersion: stored.recordVersion,
+        hash: "0".repeat(64),
+      }),
+    },
+    env,
+  );
+  expect(stale.status).toBe(409);
+  const approved = await app.request(
+    "/api/worlds/w/framework-approval",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        recordVersion: stored.recordVersion,
+        hash: await frameworkHash(stored),
+      }),
+    },
+    env,
+  );
+  expect(approved.status).toBe(200);
+  expect((await getWorld(env, "w")).status).toBe("draft");
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM world_snapshots").get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM approvals WHERE kind='framework'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare(
+        "SELECT COUNT(*) AS n FROM audit WHERE type='framework.approved'",
+      )
+      .get(),
+  ).toMatchObject({ n: 1 });
+});
+
+it("cannot confirm a legacy world without reviewing the new framework", async () => {
+  const w = await getWorld(env, "w");
+  w.selectedStyleId = "s";
+  w.visualApproval = { previewId: "p", revision: 1, approvedAt: "now" };
+  w.previews = [
+    {
+      id: "p",
+      styleId: "s",
+      elementId: "e",
+      assetId: "a",
+      revision: 1,
+      feedback: "",
+      review: { verdict: "pass", notes: [] },
+      createdAt: "now",
+    },
+  ];
+  await saveWorld(env, w, 1, "seed", "seed");
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  const res = await app.request(
+    "/api/worlds/w/confirm",
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: 1,
+        recordVersion: w.recordVersion,
+        hash: "0".repeat(64),
+      }),
+    },
+    env,
+  );
+  expect(res.status).toBe(409);
+  expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+    "FRAMEWORK_REQUIRED",
+  );
+  expect((await getWorld(env, "w")).status).toBe("draft");
+});
+
+it("new world reading retains quote uncertainty for world review instead of stopping on minutiae", async () => {
+  await seedImport();
+  sqlite
+    .prepare("UPDATE jobs SET payload_json=? WHERE id='import-job'")
+    .run(JSON.stringify({ analysisVersion: "0.03" }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      modelResult({
+        ...unsupportedCandidate(),
+        worldOverview: "A bridge in a dry valley; water is not supported.",
+      }),
+    ),
+  );
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "queued" });
+  expect(
+    sqlite.prepare("SELECT processed_count FROM sources WHERE id='s'").get(),
+  ).toMatchObject({ processed_count: 1 });
+  const segment = sqlite
+    .prepare("SELECT result_json FROM segments WHERE id='s1'")
+    .get() as { result_json: string };
+  const result = JSON.parse(segment.result_json);
+  expect(result.elements[0].features[0].origin).toBe("inferred");
+  expect(result.elements[0].features[0].quote).toBe("");
+  expect(result.warnings.join(" ")).toContain("unverified");
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM import_reviews").get(),
+  ).toMatchObject({ n: 0 });
+});
+
+it("new imports start world architecture without requiring the author to prefill worldbuilding", async () => {
+  await seedImport();
+  sqlite
+    .prepare("UPDATE jobs SET payload_json=? WHERE id='import-job'")
+    .run(JSON.stringify({ analysisVersion: "0.03" }));
+  const valid = unsupportedCandidate();
+  valid.elements[0].features[0].quote = "silver bridge";
+  sqlite
+    .prepare("UPDATE segments SET status='done',result_json=? WHERE id='s1'")
+    .run(JSON.stringify(valid));
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const f = frameworkFixture();
+  const fetcher = vi.fn(async () =>
+    modelResult({
+      title: "A valley",
+      summary: "A dry valley",
+      modules: f.modules,
+      anchors: f.anchors,
+      issues: [],
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const { processJob } = await import("../src/server/jobs");
+  await processJob(env, "import-job");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(
+    sqlite.prepare("SELECT stage FROM analysis_checkpoints").get(),
+  ).toMatchObject({ stage: "architect" });
+  expect(
+    sqlite.prepare("SELECT status FROM jobs WHERE id='import-job'").get(),
+  ).toMatchObject({ status: "queued" });
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM approvals").get(),
+  ).toMatchObject({ n: 0 });
+  expect((await getWorld(env, "w")).status).toBe("reading");
+});
+
+it("runs staged world agents with original-source fidelity review and leaves every approval to the author", async () => {
+  await seedImport();
+  sqlite
+    .prepare("UPDATE jobs SET payload_json=? WHERE id='import-job'")
+    .run(JSON.stringify({ analysisVersion: "0.03" }));
+  const valid = unsupportedCandidate();
+  valid.elements[0].features[0].quote = "silver bridge";
+  valid.elements[0].features[0].text = "Silver bridge";
+  valid.guidance = [];
+  sqlite
+    .prepare("UPDATE segments SET status='done',result_json=? WHERE id='s1'")
+    .run(JSON.stringify(valid));
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const f = frameworkFixture();
+  const contexts: Record<string, unknown>[] = [];
+  const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) => {
+    const body = JSON.parse(init!.body as string);
+    const c = JSON.parse(body.messages[1].content);
+    contexts.push(c);
+    if (c.stage === "architect")
+      return modelResult({
+        title: "Valley",
+        summary: "A dry valley",
+        modules: f.modules,
+        anchors: f.anchors,
+        issues: [],
+      });
+    if (["civilization", "geography", "ecology"].includes(c.stage)) {
+      const keys =
+        c.stage === "civilization"
+          ? ["time", "laws", "civilization"]
+          : c.stage === "geography"
+            ? ["space", "environment"]
+            : ["life"];
+      return modelResult({
+        modules: f.modules.filter((m) => keys.includes(m.key)),
+        anchors: f.anchors,
+        extensions:
+          c.stage === "geography"
+            ? [
+                {
+                  id: "model-added",
+                  module: "environment",
+                  title: "Proposed detail",
+                  definition: "A bounded detail",
+                  reason: "Optional depiction",
+                  limits: "Initial place only",
+                  decision: "accepted",
+                },
+              ]
+            : [],
+      });
+    }
+    if (c.stage === "visual")
+      return modelResult({
+        module: f.modules[7],
+        visual: f.visual,
+        styles: [1, 2, 3].map((i) => ({
+          id: `style${i}`,
+          name: `Direction ${i}`,
+          description: "A proposed depiction",
+          medium: "ink",
+          palette: ["#222222"],
+          lighting: "soft",
+          materials: [],
+          forbidden: [],
+          evidence: [],
+        })),
+        audience: f.audience,
+        exploration: { ...f.exploration, startPlace: c.elements[0].id },
+      });
+    if (c.stage === "naming")
+      return modelResult({ naming: f.naming, relations: [], envelopes: [] });
+    return modelResult({ verdict: "pass", notes: [], issues: [] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const { processJob } = await import("../src/server/jobs");
+  for (let i = 0; i < 9; i++) await processJob(env, "import-job");
+  const w = await getWorld(env, "w");
+  expect(w.status).toBe("draft");
+  expect(w.framework?.modules).toHaveLength(8);
+  expect(w.framework?.extensions[0].decision).toBe("pending");
+  expect(w.frameworkApproval).toBeNull();
+  expect(w.visualApproval).toBeNull();
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM approvals").get(),
+  ).toMatchObject({ n: 0 });
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM analysis_checkpoints").get(),
+  ).toMatchObject({ n: 7 });
+  expect(contexts.find((c) => c.stage === "fidelity:0")?.originalText).toBe(
+    "The silver bridge spans a dry valley.",
+  );
+  expect(fetcher).toHaveBeenCalledTimes(7);
+  await processJob(env, "import-job");
+  expect(fetcher).toHaveBeenCalledTimes(7);
+});
+
+it("keeps AI dialogue proposals in the review framework and invalidates prior approvals", async () => {
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const w = await getWorld(env, "w");
+  w.framework = frameworkFixture();
+  w.frameworkApproval = { hash: "old", revision: 1, approvedAt: "now" };
+  await saveWorld(env, w, 1, "seed", "seed");
+  env.MODEL_API_KEY = "test-key";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      modelResult({
+        assistant: "已提出新的年代解讀，請審核。",
+        proposed: {
+          summary: "A new interpretation",
+          era: "A relative future",
+          geography: "A closed area",
+          ecology: "Unknown",
+          rules: ["Keep the boundary"],
+        },
+      }),
+    ),
+  );
+  const response = await app.request(
+    "/api/worlds/w/chat",
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        revision: 1,
+        message: "請把年代改為相對未來，提出草案",
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(200);
+  const fresh = await getWorld(env, "w");
+  expect(fresh.framework?.modules.find((m) => m.key === "time")?.summary).toBe(
+    "A relative future",
+  );
+  expect(fresh.framework?.modules.find((m) => m.key === "time")?.basis).toBe(
+    "proposed_extension",
+  );
+  expect(fresh.frameworkApproval).toBeNull();
+  expect(fresh.status).toBe("draft");
+});
+
+it("requires a displayed record version for final activation and rejects an outdated visual decision", async () => {
+  const { frameworkFixture } = await import("./fixtures/world-framework");
+  const { frameworkHash } = await import("../src/server/world-framework");
+  const w = await getWorld(env, "w");
+  w.framework = frameworkFixture();
+  w.selectedStyleId = "style";
+  w.styles = [
+    {
+      id: "style",
+      name: "Style",
+      description: "Proposed",
+      medium: "ink",
+      palette: [],
+      lighting: "soft",
+      materials: [],
+      forbidden: [],
+      evidence: [],
+    },
+  ];
+  w.previews = [
+    {
+      id: "p",
+      assetId: "a",
+      elementId: "e",
+      styleId: "style",
+      revision: 1,
+      feedback: "",
+      review: { verdict: "pass", notes: [] },
+      createdAt: "now",
+    },
+  ];
+  w.visualApproval = { previewId: "p", revision: 1, approvedAt: "now" };
+  const hash = await frameworkHash(w);
+  w.frameworkApproval = { hash, revision: 1, approvedAt: "now" };
+  await saveWorld(env, w, 1, "seed", "seed");
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  const headers = {
+    Cookie: await cookie(),
+    "Content-Type": "application/json",
+  };
+  const missing = await app.request(
+    "/api/worlds/w/confirm",
+    { method: "POST", headers, body: JSON.stringify({ revision: 1, hash }) },
+    env,
+  );
+  expect(missing.status).toBe(422);
+  const stale = await app.request(
+    "/api/worlds/w/confirm",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        recordVersion: w.recordVersion! - 1,
+        hash,
+      }),
+    },
+    env,
+  );
+  expect(stale.status).toBe(409);
+  expect((await getWorld(env, "w")).status).toBe("draft");
 });

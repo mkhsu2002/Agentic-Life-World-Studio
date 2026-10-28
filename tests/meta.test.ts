@@ -1,5 +1,5 @@
-import { it, expect, vi } from "vitest";
-import { callJson } from "../src/server/meta";
+import { afterEach, it, expect, vi } from "vitest";
+import { callImage, callJson } from "../src/server/meta";
 import { z } from "zod";
 it("uses Meta standard model and validates the returned contract", async () => {
   const fetcher = vi.fn(async () =>
@@ -36,4 +36,42 @@ it("rejects a truncated model result", async () => {
       fetcher as typeof fetch,
     ),
   ).rejects.toMatchObject({ code: "MODEL_INCOMPLETE" });
+});
+
+afterEach(() => vi.unstubAllGlobals());
+it("sends actual reference images to Meta image edits without external search", async () => {
+  const png = btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10));
+  const fetcher = vi.fn(async () =>
+    Response.json({ data: [{ b64_json: png }] }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const reference = `data:image/png;base64,${png}`;
+  await callImage("test-key", "Keep the source visual traits", [reference]);
+  const [url, request] = fetcher.mock.calls[0] as unknown as [
+    string,
+    RequestInit,
+  ];
+  const body = JSON.parse(String(request.body));
+  expect(url).toBe("https://api.meta.ai/v1/images/edits");
+  expect(body.images).toEqual([{ image_url: reference }]);
+  expect(body.model).toBe("muse-image-1.0");
+  expect(body.tool_enablement).toEqual({
+    enable_image_search: false,
+    enable_web_search: false,
+    enable_shell: false,
+  });
+});
+it("keeps text-only image requests on the generation endpoint", async () => {
+  const png = btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10));
+  const fetcher = vi.fn(async () =>
+    Response.json({ data: [{ b64_json: png }] }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  await callImage("test-key", "A landscape");
+  const [url, request] = fetcher.mock.calls[0] as unknown as [
+    string,
+    RequestInit,
+  ];
+  expect(url).toBe("https://api.meta.ai/v1/images/generations");
+  expect(JSON.parse(String(request.body)).images).toBeUndefined();
 });

@@ -99,34 +99,44 @@ export async function callJson<T extends z.ZodType>(
     },
   };
 }
-export async function callImage(key: string, prompt: string) {
+export async function callImage(
+  key: string,
+  prompt: string,
+  referenceUrls: string[] = [],
+) {
   if (!key)
     throw new DomainError(
       "META_NOT_CONFIGURED",
       "Image access has not been configured",
       503,
     );
-  const response = await fetch("https://api.meta.ai/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "muse-image-1.0",
-      prompt,
-      n: 1,
-      response_format: "b64_json",
-      output_format: "png",
-      size: "1536x1024",
-      tool_enablement: {
-        enable_image_search: false,
-        enable_web_search: false,
-        enable_shell: false,
+  const response = await fetch(
+    `https://api.meta.ai/v1/images/${referenceUrls.length ? "edits" : "generations"}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
       },
-    }),
-    signal: AbortSignal.timeout(240000),
-  });
+      body: JSON.stringify({
+        model: "muse-image-1.0",
+        prompt,
+        ...(referenceUrls.length
+          ? { images: referenceUrls.map((image_url) => ({ image_url })) }
+          : {}),
+        n: 1,
+        response_format: "b64_json",
+        output_format: "png",
+        size: "1536x1024",
+        tool_enablement: {
+          enable_image_search: false,
+          enable_web_search: false,
+          enable_shell: false,
+        },
+      }),
+      signal: AbortSignal.timeout(240000),
+    },
+  );
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
       error?: { code?: string };

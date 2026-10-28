@@ -1,3 +1,4 @@
+import { assertFrameworkReviewed } from "./world-framework";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
@@ -38,6 +39,7 @@ async function ready(
   if (w.status !== "confirmed") throw new DomainError("WORLD_NOT_CONFIRMED");
   const source = await sourceInfo(env, w.sourceId);
   validateConfirmation(w, source.processedCount, source.segmentCount);
+  await assertFrameworkReviewed(w);
   if (!enabled.includes("en")) throw new DomainError("ENGLISH_REQUIRED");
   for (const locale of enabled) {
     const t = w.translations[locale];

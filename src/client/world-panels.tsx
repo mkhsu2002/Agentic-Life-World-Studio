@@ -20,7 +20,14 @@ import type {
   WorldDraft,
 } from "../shared/contracts";
 import { patch, post } from "./api";
-import { ImportBriefForm, ImportConversation } from "./import-dialogue";
+import { ImportConversation } from "./import-dialogue";
+import {
+  WorldReview,
+  assertReviewSnapshot,
+  isFrameworkApproved,
+} from "./world-review";
+import { moduleLabels } from "../shared/world-framework";
+import { SourceImagePicker } from "./source-image-picker";
 import { AuditList, JobList, date, statusName, type RunAction } from "./studio";
 
 type Props = {
@@ -30,6 +37,7 @@ type Props = {
   busy: boolean;
   retry: (id: string) => void;
   openImportReview: () => void;
+  onWorldUpdated: (world: WorldDraft) => void;
 };
 const worldPath = (id: string) => `/api/worlds/${encodeURIComponent(id)}`;
 const localeNames: Record<Locale, string> = {
@@ -40,26 +48,75 @@ const localeNames: Record<Locale, string> = {
 const blank = "原作未交代";
 
 export function WorldPanels(props: Props) {
-  if (props.tab === "registry") return <Registry {...props} />;
-  if (props.tab === "questions") return <Questions {...props} />;
-  if (props.tab === "visual") return <Visual {...props} />;
-  if (props.tab === "chat") return <Chat {...props} />;
-  if (props.tab === "translations") return <Translations {...props} />;
-  if (props.tab === "release") return <Release {...props} />;
-  return <Source {...props} />;
+  const panel =
+    props.tab === "registry" ? (
+      <Registry {...props} />
+    ) : props.tab === "visual" ? (
+      <Visual {...props} />
+    ) : props.tab === "chat" ? (
+      <Chat {...props} />
+    ) : props.tab === "translations" ? (
+      <Translations {...props} />
+    ) : props.tab === "release" ? (
+      <Release {...props} />
+    ) : null;
+  return (
+    <>
+      <div aria-label="世界審核" hidden={props.tab !== "review"}>
+        <WorldReview detail={props.detail} run={props.run} busy={props.busy} />
+      </div>
+      <div aria-label="原作與世界" hidden={props.tab !== "source"}>
+        <Source {...props} />
+      </div>
+      {panel}
+    </>
+  );
 }
-function Source({ detail, openImportReview, run, busy, retry }: Props) {
+function Source({
+  detail,
+  openImportReview,
+  run,
+  busy,
+  retry,
+  onWorldUpdated,
+}: Props) {
   const { world, source, jobs, audit } = detail;
   const [mode, setMode] = useState(world.mode);
   return (
     <div className="tab-content">
-      <ImportConversation
-        review={detail.importReview}
-        onOpen={openImportReview}
-        busy={busy}
-      />
-      {world.status === "reading" && (
-        <ImportBriefForm detail={detail} run={run} busy={busy} />
+      {detail.importReview?.kind !== "brief" && (
+        <ImportConversation
+          review={detail.importReview}
+          onOpen={openImportReview}
+          busy={busy}
+        />
+      )}
+      {world.status === "reading" && detail.importReview && (
+        <section className="panel">
+          <h2>將原作整理為世界審核表</h2>
+          <p className="muted">
+            你可以改用八模組框架繼續整理，將核心設定、補全與探索範圍集中核對。已完成的閱讀會保留，尚未核對的線索仍需要你的確認。
+          </p>
+          <button
+            className="primary"
+            disabled={
+              busy ||
+              jobs.some((job) => ["queued", "running"].includes(job.status))
+            }
+            onClick={() =>
+              void run("改用世界框架繼續整理", (latest) => {
+                assertReviewSnapshot(latest, detail);
+                return post(`${worldPath(world.id)}/analyze`, {
+                  revision: world.revision,
+                  recordVersion: world.recordVersion,
+                });
+              })
+            }
+          >
+            改用世界框架繼續整理
+            <ArrowUpRight size={16} />
+          </button>
+        </section>
       )}
       <div className="two-column">
         <section className="panel">
@@ -133,32 +190,61 @@ function Source({ detail, openImportReview, run, busy, retry }: Props) {
         <section className="panel">
           <p className="eyebrow">WORLD PORTRAIT</p>
           <h2>世界的輪廓</h2>
-          <dl className="world-facts">
-            <div>
-              <dt>時代</dt>
-              <dd>{world.era || blank}</dd>
-            </div>
-            <div>
-              <dt>地理</dt>
-              <dd>{world.geography || blank}</dd>
-            </div>
-            <div>
-              <dt>生態</dt>
-              <dd>{world.ecology || blank}</dd>
-            </div>
-          </dl>
-          {world.rules.length > 0 && (
+          {world.framework ? (
+            <dl className="world-facts">
+              {world.framework.modules.map((module) => (
+                <div key={module.key}>
+                  <dt>
+                    {moduleLabels[module.key]} ·{" "}
+                    {
+                      {
+                        known: "已知",
+                        unknown: "未交代",
+                        not_applicable: "不適用",
+                      }[module.status]
+                    }
+                  </dt>
+                  <dd>{module.summary}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
             <>
-              <h3 className="minor-heading">世界規則</h3>
-              <ol className="rules">
-                {world.rules.map((rule, i) => (
-                  <li key={i}>{rule}</li>
-                ))}
-              </ol>
+              <dl className="world-facts">
+                <div>
+                  <dt>時代</dt>
+                  <dd>{world.era || blank}</dd>
+                </div>
+                <div>
+                  <dt>地理</dt>
+                  <dd>{world.geography || blank}</dd>
+                </div>
+                <div>
+                  <dt>生態</dt>
+                  <dd>{world.ecology || blank}</dd>
+                </div>
+              </dl>
+              {world.rules.length > 0 && (
+                <>
+                  <h3 className="minor-heading">世界規則</h3>
+                  <ol className="rules">
+                    {world.rules.map((rule, i) => (
+                      <li key={i}>{rule}</li>
+                    ))}
+                  </ol>
+                </>
+              )}
             </>
           )}
         </section>
       </div>
+      <section className="panel">
+        <SourceImagePicker
+          world={world}
+          onUploaded={onWorldUpdated}
+          disabled={busy}
+        />
+      </section>
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -490,156 +576,9 @@ function Registry({ detail: { world }, run, busy }: Props) {
     </section>
   );
 }
-function Questions({ detail: { world, source }, run, busy }: Props) {
-  const [answers, setAnswers] = useState<Record<string, string>>(() =>
-    Object.fromEntries(world.questions.map((q) => [q.id, q.answer || ""])),
-  );
-  const unanswered = world.questions.filter((q) => !q.answer?.trim()).length;
-  const dirty = world.questions.some(
-    (q) => (answers[q.id] ?? q.answer ?? "") !== (q.answer ?? ""),
-  );
-  const clearingAnswer = world.questions.some(
-    (q) => q.answer && !(answers[q.id] ?? q.answer).trim(),
-  );
-  const readComplete =
-    source.segmentCount > 0 &&
-    source.processedCount === source.segmentCount &&
-    world.status !== "reading";
-  const visualApproved =
-    world.visualApproval?.revision === world.revision &&
-    world.previews.some(
-      (p) =>
-        p.id === world.visualApproval?.previewId &&
-        p.revision === world.revision &&
-        p.styleId === world.selectedStyleId &&
-        p.review.verdict === "pass",
-    );
-  const confirmReady = readComplete && !unanswered && visualApproved && !dirty;
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    await run("儲存回答", (d) =>
-      patch(worldPath(world.id), {
-        revision: d.world.revision,
-        answers: Object.fromEntries(
-          Object.entries(answers).filter(([, answer]) => answer.trim()),
-        ),
-      }),
-    );
-  }
-  return (
-    <div className="tab-content">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">AUTHOR’S DECISIONS</p>
-          <h2>重要的留白，由你決定。</h2>
-        </div>
-        <span className="badge">{unanswered} 個待確認問題</span>
-      </div>
-      <p className="muted intro-copy">
-        確認原作沒有說盡的地方，讓後續的世界有一致的起點。回答會保存在這個世界的版本中。
-      </p>
-      <form className="form-stack" onSubmit={save}>
-        {world.questions.map((q, i) => (
-          <section className="panel question-card" key={q.id}>
-            <span className="question-number">
-              {String(i + 1).padStart(2, "0")}
-            </span>
-            <div className="grow">
-              <h3>{q.question}</h3>
-              <p className="muted">{q.context}</p>
-              {q.options.length > 0 && (
-                <div className="answer-options">
-                  {q.options.map((option) => (
-                    <button
-                      type="button"
-                      key={option}
-                      className={
-                        answers[q.id] === option ? "choice selected" : "choice"
-                      }
-                      onClick={() => setAnswers({ ...answers, [q.id]: option })}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <label>
-                你的決定
-                <textarea
-                  rows={3}
-                  value={answers[q.id] ?? q.answer ?? ""}
-                  onChange={(e) =>
-                    setAnswers({ ...answers, [q.id]: e.target.value })
-                  }
-                  placeholder="選擇建議，或直接補充你的設定。"
-                  maxLength={4000}
-                />
-              </label>
-            </div>
-          </section>
-        ))}
-        {!world.questions.length && (
-          <div className="panel">
-            <p className="muted">
-              {world.status === "reading"
-                ? "閱讀完成後會列出需要確認的問題。"
-                : "目前沒有待釐清的問題。"}
-            </p>
-          </div>
-        )}
-        {world.questions.length > 0 && (
-          <div className="align-end">
-            <button
-              className="primary"
-              disabled={
-                busy || !dirty || !!clearingAnswer || world.status === "reading"
-              }
-            >
-              儲存所有回答
-              <Check size={16} />
-            </button>
-          </div>
-        )}
-      </form>
-      <section className="confirmation-panel">
-        <div>
-          <ShieldCheck size={25} />
-          <h2>封存世界的起點</h2>
-          <p>確認內容與視覺方向後，便可準備語系與公開網站。</p>
-          <ul className="checklist">
-            <li className={readComplete ? "done" : ""}>
-              <CheckCircle2 size={16} />
-              原作已完整閱讀
-            </li>
-            <li className={!unanswered ? "done" : ""}>
-              <CheckCircle2 size={16} />
-              確認問答已儲存
-            </li>
-            <li className={visualApproved ? "done" : ""}>
-              <CheckCircle2 size={16} />
-              視覺預覽已核准
-            </li>
-          </ul>
-        </div>
-        <button
-          className="primary"
-          disabled={busy || !confirmReady || world.status === "confirmed"}
-          onClick={() =>
-            void run("確認世界", (d) =>
-              post(`${worldPath(world.id)}/confirm`, {
-                revision: d.world.revision,
-              }),
-            )
-          }
-        >
-          {world.status === "confirmed" ? "世界已確認" : "確認這個世界"}
-          <Check size={17} />
-        </button>
-      </section>
-    </div>
-  );
-}
-function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
+function Visual({ detail, run, busy, retry }: Props) {
+  const { world, jobs } = detail;
+  const frameworkApproved = isFrameworkApproved(detail);
   const [choice, setChoice] = useState(world.selectedStyleId || "");
   const [elementId, setElementId] = useState(world.elements[0]?.id || "");
   const [feedback, setFeedback] = useState("");
@@ -654,6 +593,11 @@ function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
         </div>
         <span className="muted">{world.styles.length} 個視覺提案</span>
       </div>
+      {!frameworkApproved && (
+        <p className="notice">
+          請先選定並儲存視覺方向，再到「世界審核」親自核准核心設定、補全與探索範圍，才可產生試稿。變更方向後須重新核准設定與試稿。
+        </p>
+      )}
       {!world.styles.length ? (
         <section className="empty-world">
           <ImagePlus size={30} />
@@ -716,12 +660,14 @@ function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
               className="subtle"
               disabled={busy || styleId === world.selectedStyleId}
               onClick={() =>
-                void run("儲存視覺方向", (d) =>
-                  patch(worldPath(world.id), {
-                    revision: d.world.revision,
+                void run("儲存視覺方向", (d) => {
+                  assertReviewSnapshot(d, detail);
+                  return patch(worldPath(world.id), {
+                    revision: detail.world.revision,
+                    recordVersion: detail.world.recordVersion,
                     selectedStyleId: styleId,
-                  }),
-                )
+                  });
+                })
               }
             >
               {styleId === world.selectedStyleId
@@ -767,6 +713,7 @@ function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
                 className="primary"
                 disabled={
                   busy ||
+                  !frameworkApproved ||
                   !styleId ||
                   !targetElementId ||
                   styleId !== world.selectedStyleId ||
@@ -777,19 +724,26 @@ function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
                   )
                 }
                 onClick={() =>
-                  void run("建立視覺預覽", (d) =>
-                    post(`${worldPath(world.id)}/visual-previews`, {
-                      revision: d.world.revision,
+                  void run("建立視覺預覽", (d) => {
+                    assertReviewSnapshot(d, detail);
+                    return post(`${worldPath(world.id)}/visual-previews`, {
+                      revision: detail.world.revision,
+                      recordVersion: detail.world.recordVersion,
                       styleId,
                       elementId: targetElementId,
                       feedback,
-                    }),
-                  )
+                    });
+                  })
                 }
               >
                 生成視覺預覽
                 <ImagePlus size={17} />
               </button>
+              {!frameworkApproved && (
+                <p className="field-note">
+                  尚未完成目前版本的本人設定核准。請先回「世界審核」確認並核准，試稿按鈕才會開放。
+                </p>
+              )}
               {styleId !== world.selectedStyleId && (
                 <p className="field-note">
                   先將選取提案設為視覺方向，再產生預覽。
@@ -862,18 +816,21 @@ function Visual({ detail: { world, jobs }, run, busy, retry }: Props) {
                     }
                     disabled={
                       busy ||
+                      !frameworkApproved ||
                       preview.review.verdict !== "pass" ||
                       preview.revision !== world.revision ||
                       preview.styleId !== world.selectedStyleId ||
                       world.visualApproval?.previewId === preview.id
                     }
                     onClick={() =>
-                      void run("核准視覺預覽", (d) =>
-                        post(`${worldPath(world.id)}/visual-approval`, {
-                          revision: d.world.revision,
+                      void run("核准視覺預覽", (d) => {
+                        assertReviewSnapshot(d, detail);
+                        return post(`${worldPath(world.id)}/visual-approval`, {
+                          revision: detail.world.revision,
+                          recordVersion: detail.world.recordVersion,
                           previewId: preview.id,
-                        }),
-                      )
+                        });
+                      })
                     }
                   >
                     {world.visualApproval?.previewId === preview.id

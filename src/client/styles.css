@@ -3751,3 +3751,129 @@ progress::-moz-progress-bar {
     animation: none;
   }
 }
+
+/* Personal framework review follows the studio's existing reading surfaces. */
+.review-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 26px;
+}
+.world-review .panel > h2 {
+  margin-bottom: 20px;
+}
+.review-modules,
+.review-field-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 22px;
+}
+.review-module,
+.review-item {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.review-module h3,
+.review-item h3 {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.7;
+  margin: 0;
+}
+.review-module label,
+.review-item label,
+.world-review .panel > label,
+.review-field-pair > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 13px;
+}
+.world-review textarea,
+.world-review select {
+  width: 100%;
+  min-width: 0;
+}
+.world-review textarea {
+  resize: vertical;
+}
+.review-module .field-note,
+.review-item .field-note {
+  margin: 0;
+}
+.review-full-width {
+  grid-column: 1 / -1;
+}
+.review-evidence summary {
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+}
+.review-evidence blockquote {
+  margin: 14px 0 0;
+  padding: 12px 16px;
+  border-left: 2px solid #708d54;
+  background: #1c2a1b;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.review-evidence small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 9px;
+}
+.review-save-row {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  justify-content: space-between;
+}
+.review-save-row .primary {
+  flex-shrink: 0;
+}
+.review-image-status {
+  line-height: 2;
+  color: var(--muted);
+  padding-left: 20px;
+}
+.review-approval {
+  border-top: 2px solid var(--accent);
+}
+.review-approval .preview-confirmation {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: flex-start;
+}
+.world-review .notice {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .review-modules,
+  .review-field-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .review-module,
+  .review-item {
+    padding: 17px;
+  }
+  .review-save-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .review-save-row .primary {
+    justify-content: space-between;
+  }
+}

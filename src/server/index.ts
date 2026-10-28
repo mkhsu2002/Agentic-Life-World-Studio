@@ -1,3 +1,10 @@
+import { worldRoutes, assertRecord } from "./world-routes";
+import { frameworkHash, assertFrameworkReviewed } from "./world-framework";
+import {
+  sourceImageRoutes,
+  validateSourceImageInputs,
+  sourceImageStatements,
+} from "./source-images";
 import { PRODUCT_VERSION } from "../shared/version";
 import { importRoutes } from "./import-routes";
 import { openImportReview, importSuggestions } from "./import-dialogue";
@@ -50,11 +57,14 @@ const app = new Hono<{ Bindings: Env }>();
 app.use(
   "/api/*",
   bodyLimit({
-    maxSize: 5 * 1024 * 1024,
+    maxSize: 14 * 1024 * 1024,
     onError: (c) =>
       c.json(
         {
-          error: { code: "REQUEST_TOO_LARGE", message: "Request exceeds 5 MB" },
+          error: {
+            code: "REQUEST_TOO_LARGE",
+            message: "Request exceeds 14 MB",
+          },
         },
         413,
       ),
@@ -180,14 +190,14 @@ app.onError((e, c) => {
 });
 app.get("/api/health", async (c) => {
   const schema = await c.env.DB.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sources','worlds','elements','terms','jobs','audit','releases','import_reviews')",
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sources','worlds','elements','terms','jobs','audit','releases','import_reviews','world_snapshots','analysis_checkpoints','source_images')",
   ).all();
   return c.json({
-    status: schema.results.length === 8 ? "ok" : "schema_missing",
+    status: schema.results.length === 11 ? "ok" : "schema_missing",
     version: PRODUCT_VERSION,
     revision: c.env.BUILD_REVISION || "local",
     environment: c.env.ENVIRONMENT,
-    contract: "utsp-studio/0.02",
+    contract: "utsp-studio/0.03",
   });
 });
 app.get("/api/session", async (c) =>
@@ -226,9 +236,11 @@ app.post("/api/sources", async (c) => {
       title: z.string().min(1).max(200),
       kind: z.enum(["text", "url", "docx", "pdf", "google-doc"]),
       text: z.string().max(1000000).optional(),
+      images: z.unknown().optional(),
       url: z.string().url().max(2048).optional(),
     })
     .parse(await c.req.json());
+  const images = await validateSourceImageInputs(body.images);
   let text = body.text,
     title = body.title;
   if (!text && body.url) {
@@ -264,6 +276,10 @@ app.post("/api/sources", async (c) => {
     revision: 1,
     recordVersion: 1,
     status: "reading",
+    sourceImages: [],
+    frameworkApproval: null,
+    imageCoverageNote:
+      "本版文字匯入不代表已擷取文件或網頁中的全部圖片；請補上需要作為視覺依據的原圖。",
     importBrief: {
       timeframe: "",
       scope: "",
@@ -291,6 +307,7 @@ app.post("/api/sources", async (c) => {
   await c.env.STORAGE.put(`sources/${id}/original.txt`, text, {
     httpMetadata: { contentType: "text/plain;charset=utf-8" },
   });
+  const imageStatements = await sourceImageStatements(c.env, world, images);
   const statements = [
     c.env.DB.prepare(
       "INSERT INTO sources(id,title,kind,url,sha256,char_count,segment_count,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -308,6 +325,7 @@ app.post("/api/sources", async (c) => {
       "INSERT INTO worlds(id,source_id,revision,document_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",
     ).bind(worldId, id, 1, JSON.stringify(world), stamp, stamp),
   ];
+  statements.push(...imageStatements);
   for (const s of segments) {
     const sid = `${id}_${s.id}`,
       key = `sources/${id}/${s.id}.txt`;
@@ -318,6 +336,11 @@ app.post("/api/sources", async (c) => {
       ).bind(sid, id, Number(s.id.split("_")[1]) - 1, s.start, s.end, key),
     );
   }
+  const jobId = newId("job"),
+    payload = { analysisVersion: "0.03" };
+  const logicalKey = await sha256(
+    JSON.stringify({ worldId, kind: "import", payload }),
+  );
   statements.push(
     auditStatement(
       c.env,
@@ -325,21 +348,36 @@ app.post("/api/sources", async (c) => {
       "source.imported",
       `Source persisted in ${segments.length} segments`,
     ),
+    c.env.DB.prepare(
+      "INSERT INTO jobs(id,world_id,kind,status,stage,total,payload_json,created_at,updated_at,logical_key) VALUES(?,?,'import','queued','reading',?,?,?,?,?)",
+    ).bind(
+      jobId,
+      worldId,
+      segments.length + 8,
+      JSON.stringify(payload),
+      stamp,
+      stamp,
+      logicalKey,
+    ),
+    c.env.DB.prepare(
+      "INSERT INTO outbox(id,job_id,created_at) VALUES(?,?,?)",
+    ).bind(newId("outbox"), jobId, stamp),
+    auditStatement(c.env, worldId, "job.queued", "Queued world source reading"),
   );
   await c.env.DB.batch(statements);
-  const jobId = await enqueue(
-    c.env,
-    worldId,
-    "import",
-    {},
-    segments.length + 1,
-  );
+  // Content, job and delivery intent already exist atomically; a delivery outage must not prompt duplicate import.
+  try {
+    await deliverOutbox(c.env);
+  } catch {
+    console.warn("Source saved; queue dispatch retained in outbox", jobId);
+  }
   return c.json({ worldId, jobId }, 202);
 });
 app.get("/api/worlds/:id", async (c) => {
   const w = await getWorld(c.env, c.req.param("id"));
   return c.json({
     world: w,
+    frameworkHash: w.framework ? await frameworkHash(w) : null,
     importReview: await openImportReview(c.env, w.id),
     importSuggestions: await importSuggestions(c.env, w.sourceId, w.id),
     source: await sourceInfo(c.env, w.sourceId),
@@ -360,6 +398,7 @@ app.patch("/api/worlds/:id", async (c) => {
   const b = z
     .object({
       revision: z.number().int(),
+      recordVersion: z.number().int().optional(),
       answers: z.record(z.string(), z.string().min(1).max(4000)).optional(),
       selectedStyleId: z.string().optional(),
       mode: z.enum(["landscape", "ecology", "mixed"]).optional(),
@@ -369,6 +408,7 @@ app.patch("/api/worlds/:id", async (c) => {
   assertRevision(w, b.revision);
   if (w.status === "reading") throw new DomainError("SOURCE_INCOMPLETE");
   const next = revised(w);
+  assertRecord(w.recordVersion, b.recordVersion);
   if (b.answers)
     for (const [id, answer] of Object.entries(b.answers)) {
       const q = next.questions.find((q) => q.id === id);
@@ -478,6 +518,29 @@ app.post("/api/worlds/:id/chat", async (c) => {
   const next = result.value.proposed
     ? { ...revised(w), ...result.value.proposed }
     : w;
+  if (result.value.proposed && next.framework) {
+    const p = result.value.proposed;
+    const updates: Record<string, string> = {
+      identity: p.summary,
+      time: p.era,
+      space: p.geography,
+      life: p.ecology,
+      laws: p.rules.join("；") || "原作未交代額外法則",
+    };
+    next.framework = {
+      ...structuredClone(next.framework),
+      modules: next.framework.modules.map((m) =>
+        updates[m.key] !== undefined && updates[m.key] !== m.summary
+          ? {
+              ...m,
+              summary: updates[m.key],
+              basis: "proposed_extension" as const,
+              evidence: [],
+            }
+          : m,
+      ),
+    };
+  }
   const stmts = [
     c.env.DB.prepare(
       "INSERT INTO messages(id,world_id,role,content,created_at) VALUES(?,?,?,?,?)",
@@ -522,15 +585,21 @@ app.post("/api/worlds/:id/visual-previews", async (c) => {
     !w.styles.some((s) => s.id === b.styleId)
   )
     throw new DomainError("VISUAL_TARGET_INVALID");
+  await assertFrameworkReviewed(w);
   const jobId = await enqueue(c.env, w.id, "visual", b);
   return c.json({ jobId }, 202);
 });
 app.post("/api/worlds/:id/visual-approval", async (c) => {
   const b = z
-    .object({ revision: z.number().int(), previewId: z.string() })
+    .object({
+      revision: z.number().int(),
+      recordVersion: z.number().int(),
+      previewId: z.string(),
+    })
     .parse(await c.req.json());
   const w = await getWorld(c.env, c.req.param("id"));
   assertRevision(w, b.revision);
+  assertRecord(w.recordVersion, b.recordVersion);
   const p = w.previews.find((p) => p.id === b.previewId);
   if (!p || p.revision !== w.revision || p.review.verdict !== "pass")
     throw new DomainError("VISUAL_REVIEW_REQUIRED");
@@ -539,6 +608,7 @@ app.post("/api/worlds/:id/visual-approval", async (c) => {
       "STYLE_MISMATCH",
       "Select this style before approving its current preview",
     );
+  await assertFrameworkReviewed(w);
   w.visualApproval = {
     previewId: p.id,
     revision: w.revision,
@@ -566,11 +636,21 @@ app.post("/api/worlds/:id/visual-approval", async (c) => {
   return c.json({ world: w });
 });
 app.post("/api/worlds/:id/confirm", async (c) => {
-  const b = z.object({ revision: z.number().int() }).parse(await c.req.json());
+  const b = z
+    .object({
+      revision: z.number().int(),
+      recordVersion: z.number().int(),
+      hash: z.string().length(64),
+    })
+    .parse(await c.req.json());
   const w = await getWorld(c.env, c.req.param("id"));
   assertRevision(w, b.revision);
   const s = await sourceInfo(c.env, w.sourceId);
   validateConfirmation(w, s.processedCount, s.segmentCount);
+  await assertFrameworkReviewed(w);
+  assertRecord(w.recordVersion, b.recordVersion);
+  if (b.hash !== (await frameworkHash(w)))
+    throw new DomainError("REVISION_CONFLICT");
   w.status = "confirmed";
   await saveWorld(
     c.env,
@@ -734,6 +814,8 @@ app.post("/api/jobs/:id/retry", async (c) => {
   await deliverOutbox(c.env);
   return c.json({ jobId: job.id }, 202);
 });
+app.route("/api", worldRoutes);
+app.route("/api", sourceImageRoutes);
 app.route("/api", importRoutes);
 app.route("/api", siteRoutes);
 app.get("/media/:id", async (c) => {

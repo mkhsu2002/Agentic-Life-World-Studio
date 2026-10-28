@@ -1,6 +1,12 @@
-import { inspectEvidence } from "./import-evidence";
+import { runWorldAnalysis } from "./world-analysis";
+import {
+  assertFrameworkReviewed,
+  approvedFrameworkContext,
+} from "./world-framework";
+import { sourceImageData } from "./source-images";
+import { inspectEvidence, prepareWorldReading } from "./import-evidence";
 import { pauseImport } from "./import-dialogue";
-import { usage } from "./usage";
+import { restoreUsage, usage } from "./usage";
 import { runLocalization } from "./localization";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
@@ -37,6 +43,7 @@ import {
 import { callJson, callImage } from "./meta";
 import {
   READER,
+  WORLD_READER,
   COMPILER,
   TRANSLATOR,
   TRANSLATION_QA,
@@ -52,6 +59,15 @@ type JobRow = {
   payload_json: string;
   lease_until: string | null;
 };
+const usageCheckpointSchema = z.object({
+  version: z.literal(1),
+  inputHash: z.string().min(1),
+  usageId: z.string().min(1),
+  usage: z.object({
+    input: z.number().int().nonnegative(),
+    output: z.number().int().nonnegative(),
+  }),
+});
 async function resume(env: Env, job: JobRow, completed: number, stage: string) {
   const stamp = now();
   await env.DB.batch([
@@ -74,6 +90,7 @@ async function complete(env: Env, job: JobRow, message: string) {
 }
 async function readSegment(env: Env, job: JobRow) {
   const w = await getWorld(env, job.world_id);
+  const modern = JSON.parse(job.payload_json).analysisVersion === "0.03";
   if (w.status !== "reading") {
     const coverage = await env.DB.prepare(
       "SELECT segment_count,processed_count FROM sources WHERE id=?",
@@ -101,6 +118,21 @@ async function readSegment(env: Env, job: JobRow) {
     .bind(w.sourceId)
     .first<{ id: string; text_key: string; ordinal: number }>();
   if (!segment) {
+    if (modern) {
+      const source = await env.DB.prepare(
+        "SELECT segment_count FROM sources WHERE id=?",
+      )
+        .bind(w.sourceId)
+        .first<{ segment_count: number }>();
+      if (source)
+        await env.DB.prepare("UPDATE jobs SET total=? WHERE id=?")
+          .bind(source.segment_count * 2 + 7, job.id)
+          .run();
+      const progress = await runWorldAnalysis(env, job, w);
+      if (!progress.done)
+        await resume(env, job, progress.completed, progress.message);
+      return;
+    }
     await synthesize(env, job, w);
     return;
   }
@@ -123,29 +155,109 @@ async function readSegment(env: Env, job: JobRow) {
   );
   const candidateKey = `jobs/${job.id}/segment-${segment.ordinal}-candidate.json`;
   const cached = await env.STORAGE.get(candidateKey);
-  const cachedValue = cached
-    ? extractionSchema.safeParse(
-        (await cached.json<{ output?: unknown }>()).output,
-      )
+  const savedCandidate = cached
+    ? await cached.json<{ output?: unknown }>()
     : null;
+  let cachedValue = cached
+    ? extractionSchema.safeParse(savedCandidate?.output)
+    : null;
+  const sourceHash = modern
+    ? await sha256(
+        JSON.stringify({
+          worldId: w.id,
+          sourceId: w.sourceId,
+          segmentId: segment.id,
+          textKey: segment.text_key,
+          text,
+        }),
+      )
+    : "";
+  const inputHash = modern
+    ? await sha256(
+        JSON.stringify({
+          worldId: w.id,
+          revision: w.revision,
+          prompt: WORLD_READER,
+          sourceId: w.sourceId,
+          segmentId: segment.id,
+          text,
+          knownNames: known.slice(-160),
+          authorBrief: w.importBrief,
+        }),
+      )
+    : "";
+  if (modern && savedCandidate) {
+    const receipt = usageCheckpointSchema
+      .extend({ sourceHash: z.string().min(1) })
+      .safeParse(savedCandidate);
+    if (
+      !receipt.success ||
+      receipt.data.sourceHash !== sourceHash ||
+      !cachedValue?.success
+    )
+      throw new DomainError("READING_CHECKPOINT_INVALID");
+    await restoreUsage(
+      env,
+      job,
+      "read_segment",
+      "muse-spark-1.3",
+      receipt.data,
+    );
+    if (receipt.data.inputHash !== inputHash) {
+      // Author clarification is a new request. Settle and retain the old result
+      // before replacing it; immutable source changes remain blocked above.
+      await env.STORAGE.put(
+        `jobs/${job.id}/segment-${segment.ordinal}-superseded-${receipt.data.inputHash}.json`,
+        JSON.stringify(savedCandidate),
+      );
+      await env.STORAGE.delete(candidateKey);
+      cachedValue = null;
+    }
+  }
   let output =
     cachedValue?.success &&
-    !inspectEvidence(text, cachedValue.data, segment.id).problems.length
+    (modern ||
+      !inspectEvidence(text, cachedValue.data, segment.id).problems.length)
       ? { value: cachedValue.data, usage: { input: 0, output: 0 } }
-      : await usage(env, job, "read_segment", "muse-spark-1.3", () =>
-          callJson(
-            env.MODEL_API_KEY,
-            READER,
-            {
-              segmentId: segment.id,
-              text,
-              knownNames: known.slice(-160),
-              authorBrief: w.importBrief,
-            },
-            extractionSchema,
-          ),
+      : await usage(
+          env,
+          job,
+          "read_segment",
+          "muse-spark-1.3",
+          () =>
+            callJson(
+              env.MODEL_API_KEY,
+              modern ? WORLD_READER : READER,
+              {
+                segmentId: segment.id,
+                text,
+                knownNames: known.slice(-160),
+                authorBrief: w.importBrief,
+              },
+              extractionSchema,
+            ),
+          modern
+            ? async (result, usageId) => {
+                result.value = prepareWorldReading(
+                  text,
+                  result.value,
+                  segment.id,
+                );
+                await env.STORAGE.put(
+                  candidateKey,
+                  JSON.stringify({
+                    version: 1,
+                    inputHash,
+                    sourceHash,
+                    usageId,
+                    usage: result.usage,
+                    output: result.value,
+                  }),
+                );
+              }
+            : undefined,
         );
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; !modern && attempt < 3; attempt++) {
     const inspected = inspectEvidence(text, output.value, segment.id);
     output.value = inspected.candidate;
     await env.STORAGE.put(
@@ -325,6 +437,8 @@ async function visual(env: Env, job: JobRow) {
     feedback: string;
   };
   if (p.revision !== w.revision) throw new DomainError("REVISION_CONFLICT");
+  await assertFrameworkReviewed(w);
+  const referenceImages = await sourceImageData(env, w);
   const style = w.styles.find((s) => s.id === p.styleId),
     element = w.elements.find((e) => e.id === p.elementId);
   if (!style || !element) throw new DomainError("VISUAL_TARGET_INVALID");
@@ -335,64 +449,149 @@ async function visual(env: Env, job: JobRow) {
     rules: w.rules,
     mode: w.mode,
     authorDecisions: w.questions,
+    approvedWorld: approvedFrameworkContext(w),
   };
   const prompt = `Create a calibration artwork depicting only this source-supported world element. Documentary composition without adding camera equipment or a photographer. Current confirmed interpretation and author decisions: ${JSON.stringify(context)}. Follow its historical time slice; if a feature conflicts with that slice, depict only supported compatible details. Style: ${JSON.stringify(style)}. Element: ${JSON.stringify(element)}. Author feedback: ${p.feedback || "None"}. Preserve all locked morphological features. No titles, labels, watermark or text. Interpret unknown details conservatively; no unrelated world elements.`;
   const checkpointKey = `jobs/${job.id}/visual-asset.json`;
+  const inputHash = await sha256(
+    JSON.stringify({
+      worldId: w.id,
+      revision: w.revision,
+      prompt,
+      referenceImages,
+    }),
+  );
+  const imageCheckpointSchema = usageCheckpointSchema.extend({
+    assetId: z.string().min(1),
+    objectKey: z.string().min(1),
+    contentType: z.literal("image/png"),
+    sha256: z.string().min(1),
+    createdAt: z.string().min(1),
+  });
   const checkpoint = await env.STORAGE.get(checkpointKey);
-  let assetId: string,
-    objectKey: string,
-    image: { bytes: Uint8Array; b64: string; contentType: string };
+  let saved: z.infer<typeof imageCheckpointSchema> | undefined;
+  let image: { bytes: Uint8Array; b64: string; contentType: string };
   if (checkpoint) {
-    const saved = await checkpoint.json<{
-      assetId: string;
-      objectKey: string;
-    }>();
-    assetId = saved.assetId;
-    objectKey = saved.objectKey;
-    const stored = await env.STORAGE.get(objectKey);
+    const parsed = imageCheckpointSchema.safeParse(await checkpoint.json());
+    if (!parsed.success || parsed.data.inputHash !== inputHash)
+      throw new DomainError("IMAGE_CHECKPOINT_INVALID");
+    saved = parsed.data;
+    const stored = await env.STORAGE.get(saved.objectKey);
     if (!stored) throw new DomainError("IMAGE_CHECKPOINT_MISSING");
     const bytes = new Uint8Array(await stored.arrayBuffer());
+    if ((await sha256(bytes.buffer as ArrayBuffer)) !== saved.sha256)
+      throw new DomainError("IMAGE_CHECKPOINT_INVALID");
     image = {
       bytes,
       b64: Buffer.from(bytes).toString("base64"),
-      contentType: "image/png",
+      contentType: saved.contentType,
     };
+    await restoreUsage(env, job, "visual_generation", "muse-image-1.0", saved);
   } else {
-    image = await usage(env, job, "visual_generation", "muse-image-1.0", () =>
-      callImage(env.MODEL_API_KEY, prompt),
-    );
-    assetId = newId("asset");
-    objectKey = `assets/${w.id}/${assetId}.png`;
-    await env.STORAGE.put(objectKey, image.bytes, {
-      httpMetadata: { contentType: image.contentType },
-    });
-    await env.DB.prepare(
-      "INSERT INTO assets(id,world_id,object_key,content_type,sha256,created_at) VALUES(?,?,?,?,?,?)",
-    )
-      .bind(
-        assetId,
-        w.id,
-        objectKey,
-        image.contentType,
-        await sha256(image.bytes.buffer as ArrayBuffer),
-        now(),
-      )
-      .run();
-    await env.STORAGE.put(
-      checkpointKey,
-      JSON.stringify({ assetId, objectKey }),
+    image = await usage(
+      env,
+      job,
+      "visual_generation",
+      "muse-image-1.0",
+      () => callImage(env.MODEL_API_KEY, prompt, referenceImages),
+      async (result, usageId) => {
+        const assetId = newId("asset");
+        const objectKey = `assets/${w.id}/${assetId}.png`;
+        saved = {
+          version: 1,
+          inputHash,
+          assetId,
+          objectKey,
+          usageId,
+          usage: { input: 0, output: 0 },
+          contentType: "image/png",
+          sha256: await sha256(result.bytes.buffer as ArrayBuffer),
+          createdAt: now(),
+        };
+        await env.STORAGE.put(objectKey, result.bytes, {
+          httpMetadata: { contentType: result.contentType },
+        });
+        await env.STORAGE.put(checkpointKey, JSON.stringify(saved));
+      },
     );
   }
-  const review = await usage(env, job, "visual_review", "muse-spark-1.3", () =>
-    callJson(
-      env.MODEL_API_KEY,
-      VISUAL_QA,
-      { worldContext: context, style, element, feedback: p.feedback },
-      reviewSchema,
-      fetch,
-      [`data:image/png;base64,${image.b64}`],
-    ),
+  if (!saved) throw new DomainError("IMAGE_CHECKPOINT_MISSING");
+  const { assetId } = saved;
+  await env.DB.prepare(
+    "INSERT INTO assets(id,world_id,object_key,content_type,sha256,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+  )
+    .bind(
+      assetId,
+      w.id,
+      saved.objectKey,
+      saved.contentType,
+      saved.sha256,
+      saved.createdAt,
+    )
+    .run();
+  const reviewPrompt =
+    VISUAL_QA +
+    " The first supplied image is the generated candidate; subsequent images are original references. Compare candidate to these without treating reference-only content as a new approved world fact.";
+  const reviewContext = {
+    worldContext: context,
+    style,
+    element,
+    feedback: p.feedback,
+  };
+  const reviewInputHash = await sha256(
+    JSON.stringify({
+      inputHash,
+      imageHash: saved.sha256,
+      reviewPrompt,
+      reviewContext,
+    }),
   );
+  const reviewKey = `jobs/${job.id}/visual-review.json`;
+  const cachedReview = await env.STORAGE.get(reviewKey);
+  let review: { value: z.infer<typeof reviewSchema> };
+  if (cachedReview) {
+    const parsed = usageCheckpointSchema
+      .extend({ output: reviewSchema })
+      .safeParse(await cachedReview.json());
+    if (!parsed.success || parsed.data.inputHash !== reviewInputHash)
+      throw new DomainError("VISUAL_REVIEW_CHECKPOINT_INVALID");
+    await restoreUsage(
+      env,
+      job,
+      "visual_review",
+      "muse-spark-1.3",
+      parsed.data,
+    );
+    review = { value: parsed.data.output };
+  } else {
+    review = await usage(
+      env,
+      job,
+      "visual_review",
+      "muse-spark-1.3",
+      () =>
+        callJson(
+          env.MODEL_API_KEY,
+          reviewPrompt,
+          reviewContext,
+          reviewSchema,
+          fetch,
+          [`data:image/png;base64,${image.b64}`, ...referenceImages],
+        ),
+      async (result, usageId) => {
+        await env.STORAGE.put(
+          reviewKey,
+          JSON.stringify({
+            version: 1,
+            inputHash: reviewInputHash,
+            usageId,
+            usage: result.usage,
+            output: result.value,
+          }),
+        );
+      },
+    );
+  }
   const fresh = await getWorld(env, w.id);
   if (fresh.revision !== p.revision) throw new DomainError("REVISION_CONFLICT");
   if (fresh.previews.some((preview) => preview.id === `preview_${job.id}`)) {

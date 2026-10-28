@@ -8,8 +8,8 @@ const messages: Record<string, string> = {
   REVISION_CONFLICT:
     "世界已在另一個操作中更新。已重新讀取最新版本，請檢查內容後重試。",
   IMPORT_NOTES_TOO_LONG:
-    "累積補充已超過 8,000 字元，請先在解析方向表單精簡內容，再繼續。",
-  IMPORT_BRIEF_REQUIRED: "請先確認匯入方向；不確定的欄位可以留白。",
+    "累積補充已超過 8,000 字元，請縮短本次訊息，或待閱讀完成後在世界審核表直接調整設定。",
+  IMPORT_BRIEF_REQUIRED: "請前往來源頁面重新整理原作閱讀狀態。",
   IMPORT_REVIEW_INVALID: "這份確認對話的內容已更新，請重新整理後查看最新內容。",
   IMPORT_REVIEW_REQUIRED: "閱讀有待確認的線索，請先完成確認對話。",
   IMPORT_REVIEW_NOT_FOUND: "這份確認對話已更新，請重新整理後查看最新內容。",
@@ -17,7 +17,7 @@ const messages: Record<string, string> = {
   IMPORT_REVIEW_RESOLVED: "這份確認已經儲存，請查看最新閱讀進度。",
   IMPORT_REVIEW_INCOMPLETE: "請為每一項敘述選擇處理方式，再繼續閱讀。",
   IMPORT_REVIEW_NOT_PENDING: "這份確認已經處理，請查看最新閱讀進度。",
-  IMPORT_BRIEF_LOCKED: "原作已完成整理，請前往確認問答或對話調整設定。",
+  IMPORT_BRIEF_LOCKED: "原作已完成整理，請前往世界審核或對話調整設定。",
   EVIDENCE_DECISIONS_INCOMPLETE: "請為每一項敘述選擇處理方式，再繼續閱讀。",
   EVIDENCE_REPLACEMENT_INVALID:
     "請從這個片段複製可核對的原文引句，或選擇作為作者補充。",
@@ -38,14 +38,28 @@ const messages: Record<string, string> = {
   GOOGLE_URL_INVALID: "請輸入完整的 Google 文件網址。",
   URL_NOT_ALLOWED: "無法讀取此網址，請提供公開網頁或改貼上原文。",
   META_NOT_CONFIGURED: "模型服務尚未連接完成，目前無法開始處理。",
-  UNRESOLVED_QUESTIONS: "仍有未儲存的確認回答，請先完成問答。",
+  FRAMEWORK_REQUIRED:
+    "此世界尚未建立八模組審核表，請先到「世界審核」整理設定。",
+  FRAMEWORK_NOT_APPROVED:
+    "目前版本的世界設定尚未經你核准，請先到「世界審核」親自確認。",
+  FRAMEWORK_HASH_MISMATCH: "世界內容已更新，請檢查最新版本後再核准。",
+  EXTENSION_DECISIONS_REQUIRED: "請逐項接受或拒絕補全與探索範圍提案，再儲存。",
+  FRAMEWORK_ISSUES_UNRESOLVED:
+    "仍有重大事項未填寫處理決定，請在世界審核表補齊。",
+  FRAMEWORK_START_INVALID:
+    "探索起點尚未對應已登錄的元素，請在世界審核表重新選擇起始地點並儲存。",
+  FRAMEWORK_RELATION_INVALID:
+    "部分元素關係無法對應目前的元素登錄，請重新整理世界設定。",
+  SOURCE_IMAGE_INVALID: "參考圖無法讀取，請改用 PNG、JPEG 或 WebP 圖片。",
+  SOURCE_IMAGE_LIMIT: "每個世界最多可保存 6 張原作參考圖。",
+  UNRESOLVED_QUESTIONS: "仍有待確認設定，請先完成世界審核。",
   VISUAL_NOT_APPROVED: "目前版本尚未核准視覺預覽，請先完成校準。",
   VISUAL_REVIEW_REQUIRED:
     "這份預覽尚未通過審查，或已不是目前版本，請重新產生預覽。",
   STYLE_MISMATCH: "請先選定對應的視覺方向，再核准此預覽。",
   VISUAL_TARGET_INVALID: "找不到選取的風格或元素，請重新選擇。",
   STYLE_NOT_FOUND: "找不到選取的視覺方向。",
-  WORLD_NOT_CONFIRMED: "請先在確認問答中確認世界設定。",
+  WORLD_NOT_CONFIRMED: "請先完成世界審核與視覺核准，再啟用這個世界。",
   WORLD_EMPTY: "世界內容尚未完整，請檢查來源閱讀與元素登錄。",
   STALE_TRANSLATION: "世界設定已更新，請重新建立並審查這個語系。",
   TRANSLATION_INCOMPLETE: "語系內容尚未完整，請補齊名稱、介紹、元素與特色。",
@@ -74,7 +88,8 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   if (
     !["GET", "HEAD", "OPTIONS"].includes(
       (options?.method || "GET").toUpperCase(),
-    )
+    ) &&
+    !headers.has("Idempotency-Key")
   )
     headers.set("Idempotency-Key", crypto.randomUUID());
   let response: Response;

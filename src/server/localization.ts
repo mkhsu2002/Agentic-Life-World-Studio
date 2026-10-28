@@ -1,3 +1,4 @@
+import { approvedFrameworkContext } from "./world-framework";
 import { z } from "zod";
 import {
   locales,
@@ -108,6 +109,9 @@ function context(world: WorldDraft, elements: Element[]) {
     ecology: world.ecology,
     rules: world.rules,
     questions: world.questions,
+    ...(world.frameworkApproval
+      ? { approvedWorld: approvedFrameworkContext(world) }
+      : {}),
     elements,
   };
 }

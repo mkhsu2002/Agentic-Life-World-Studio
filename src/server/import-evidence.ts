@@ -7,6 +7,44 @@ import {
 } from "../shared/contracts";
 import { DomainError, resolveQuote } from "./domain";
 export type Extraction = z.infer<typeof extractionSchema>;
+/** Formatting uncertainty remains a proposal for world-level review, never verified evidence. */
+export function prepareWorldReading(
+  source: string,
+  value: Extraction,
+  segmentId: string,
+) {
+  const { candidate, problems } = inspectEvidence(source, value, segmentId);
+  const invalid = new Set(problems.map((p) => p.id));
+  candidate.elements.forEach((e, i) => {
+    if (!e.features.length)
+      e.features = [
+        {
+          id: "definition",
+          text: e.definition,
+          quote: "",
+          segmentId,
+          origin: "inferred",
+          locked: false,
+        },
+      ];
+    e.features.forEach((f, j) => {
+      if (
+        invalid.has(`element:${i}:feature:${j}`) ||
+        invalid.has(`element:${i}:definition`)
+      ) {
+        f.origin = "inferred";
+        f.quote = "";
+        f.locked = false;
+        f.segmentId = segmentId;
+      }
+    });
+  });
+  candidate.facts = candidate.facts.filter((_, i) => !invalid.has(`fact:${i}`));
+  candidate.warnings.push(
+    ...problems.map((p) => `unverified candidate (${segmentId}): ${p.claim}`),
+  );
+  return candidate;
+}
 export const resolvedExtractionSchema = extractionSchema.extend({
   elements: z.array(
     extractedElementSchema.extend({

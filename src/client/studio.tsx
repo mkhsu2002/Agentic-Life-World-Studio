@@ -299,7 +299,13 @@ export function Studio() {
     const result = await api<WorldDetail>(
       `/api/worlds/${encodeURIComponent(id)}`,
     );
-    if (selectionRef.current === id) setDetail(result);
+    if (selectionRef.current === id)
+      setDetail((current) =>
+        current?.world.id === id &&
+        (current.world.recordVersion ?? 0) > (result.world.recordVersion ?? 0)
+          ? current
+          : result,
+      );
     return result;
   }, []);
   const handleError = useCallback((e: unknown) => {
@@ -325,7 +331,11 @@ export function Studio() {
   }, [selected, authenticated, loadWorld, handleError]);
   useEffect(() => {
     const review = detail?.importReview;
-    if (review && !seenReviewIds.current.has(review.id)) {
+    if (
+      review &&
+      review.kind !== "brief" &&
+      !seenReviewIds.current.has(review.id)
+    ) {
       seenReviewIds.current.add(review.id);
       setOpenReviewId(review.id);
     }
@@ -452,8 +462,8 @@ export function Studio() {
     ) || [];
   const tabs = [
     ["source", "原作與世界"],
+    ["review", "世界審核"],
     ["registry", "元素登錄"],
-    ["questions", "確認問答"],
     ["visual", "視覺方向"],
     ["chat", "AI 對話"],
     ["translations", "語系校準"],
@@ -779,15 +789,9 @@ export function Studio() {
                     className={tab === id ? "active" : ""}
                   >
                     {label}
-                    {id === "questions" &&
-                      detail.world.questions.some((q) => !q.answer) && (
-                        <span className="tab-count">
-                          {
-                            detail.world.questions.filter((q) => !q.answer)
-                              .length
-                          }
-                        </span>
-                      )}
+                    {id === "review" && !detail.world.frameworkApproval && (
+                      <span className="tab-count">待核准</span>
+                    )}
                   </button>
                 ))}
               </nav>
@@ -798,6 +802,15 @@ export function Studio() {
                 run={run}
                 busy={!!pending}
                 retry={(id) => void retry(id)}
+                onWorldUpdated={(world) => {
+                  setDetail((current) =>
+                    current?.world.id === world.id
+                      ? { ...current, world, frameworkHash: null }
+                      : current,
+                  );
+                  void loadWorld(world.id).catch(handleError);
+                  void loadOverview().catch(handleError);
+                }}
                 openImportReview={() =>
                   setOpenReviewId(detail.importReview?.id || null)
                 }

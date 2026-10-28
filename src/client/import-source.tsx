@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowUpRight, FileText, Link, Upload, X } from "lucide-react";
 import type { SourceKind } from "../shared/contracts";
-import { post, errorMessage } from "./api";
+import { api, errorMessage } from "./api";
+import {
+  SourceImageInputs,
+  type SourceImageInput,
+} from "./source-image-picker";
 
 export function ImportSource({
   onClose,
@@ -12,6 +16,7 @@ export function ImportSource({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const lockedRef = useRef(false);
+  const importAttempt = useRef<{ hash: string; key: string } | null>(null);
   const [method, setMethod] = useState<"text" | "url" | "file">("text");
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
@@ -21,7 +26,9 @@ export function ImportSource({
   const [busy, setBusy] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
-  lockedRef.current = busy || parsing;
+  const [images, setImages] = useState<SourceImageInput[]>([]);
+  const [readingImages, setReadingImages] = useState(false);
+  lockedRef.current = busy || parsing || readingImages;
   useEffect(() => {
     const previous =
       document.activeElement instanceof HTMLElement
@@ -143,12 +150,27 @@ export function ImportSource({
           : method === "file"
             ? kind
             : "text";
-      const result = await post<{ worldId: string; jobId: string }>(
+      const body = JSON.stringify({
+        title: title.trim(),
+        kind: sourceKind,
+        images,
+        ...(method === "url" ? { url: url.trim() } : { text }),
+      });
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(body),
+      );
+      const hash = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      if (importAttempt.current?.hash !== hash)
+        importAttempt.current = { hash, key: crypto.randomUUID() };
+      const result = await api<{ worldId: string; jobId: string }>(
         "/api/sources",
         {
-          title: title.trim(),
-          kind: sourceKind,
-          ...(method === "url" ? { url: url.trim() } : { text }),
+          method: "POST",
+          headers: { "Idempotency-Key": importAttempt.current.key },
+          body,
         },
       );
       onCreated(result.worldId);
@@ -176,7 +198,7 @@ export function ImportSource({
             className="icon-button"
             aria-label="關閉匯入"
             onClick={onClose}
-            disabled={busy || parsing}
+            disabled={busy || parsing || readingImages}
           >
             <X size={20} />
           </button>
@@ -202,7 +224,7 @@ export function ImportSource({
                 setMethod(id);
                 setError("");
               }}
-              disabled={busy || parsing}
+              disabled={busy || parsing || readingImages}
             >
               <Icon size={16} />
               {label}
@@ -279,6 +301,15 @@ export function ImportSource({
               )}
             </>
           )}
+          <p className="field-note">
+            目前匯入文件與網址會讀取文字；原作中的配圖請另行加入下方參考圖。
+          </p>
+          <SourceImageInputs
+            images={images}
+            onChange={setImages}
+            disabled={busy || parsing}
+            onBusyChange={setReadingImages}
+          />
           {error && (
             <p role="alert" className="notice error">
               {error}
@@ -293,6 +324,7 @@ export function ImportSource({
               disabled={
                 busy ||
                 parsing ||
+                readingImages ||
                 !title.trim() ||
                 (method === "url" ? !url.trim() : !text.trim())
               }

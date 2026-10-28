@@ -1,4 +1,9 @@
 import { z } from "zod";
+import type {
+  WorldFramework,
+  FrameworkApproval,
+  SourceImage,
+} from "./world-framework";
 export const locales = ["en", "zh-Hant", "ja"] as const;
 export type Locale = (typeof locales)[number];
 export type SourceKind = "text" | "url" | "docx" | "pdf" | "google-doc";
@@ -96,6 +101,10 @@ export type ImportReview = {
   createdAt: string;
 };
 export type WorldDraft = {
+  framework?: WorldFramework;
+  frameworkApproval?: FrameworkApproval;
+  sourceImages?: SourceImage[];
+  imageCoverageNote?: string;
   id: string;
   recordVersion?: number;
   resolvedDecisions?: string;
@@ -168,6 +177,7 @@ export type SiteRelease = {
   createdAt: string;
 };
 export type WorldDetail = {
+  frameworkHash: string | null;
   importReview: ImportReview | null;
   importSuggestions: string[];
   world: WorldDraft;
@@ -222,6 +232,7 @@ export const extractedElementSchema = z.object({
   features: z.array(featureSchema),
 });
 export const extractionSchema = z.object({
+  worldOverview: z.string().max(3000).optional(),
   guidance: z.array(z.string()).max(6).optional(),
   elements: z.array(extractedElementSchema),
   facts: z.array(
