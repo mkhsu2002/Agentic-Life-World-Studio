@@ -4,6 +4,7 @@ import { expect, it } from "vitest";
 import {
   assertReviewSnapshot,
   frameworkReviewReady,
+  briefReviewReady,
   isFrameworkApproved,
   WorldReview,
 } from "../src/client/world-review";
@@ -127,213 +128,32 @@ function detail(): WorldDetail {
     },
   };
 }
-it("rejects approval when the shown revision, record version or content hash has changed", () => {
-  const shown = detail();
-  expect(() =>
-    assertReviewSnapshot(structuredClone(shown), shown),
-  ).not.toThrow();
-  for (const field of ["revision", "recordVersion", "frameworkHash"] as const) {
-    const latest = structuredClone(shown);
-    if (field === "frameworkHash") latest.frameworkHash = "unseen-hash";
-    else latest.world[field] = (latest.world[field] ?? 0) + 1;
-    expect(() => assertReviewSnapshot(latest, shown)).toThrow(/版本|更新|變更/);
-  }
-});
-it("requires each expansion decision and a resolution for material issues", () => {
-  const { world } = detail();
-  expect(frameworkReviewReady(world)).toBe(true);
-  world.framework!.extensions.push({
-    id: "extension",
-    module: "life",
-    title: "補全",
-    definition: "新生命",
-    reason: "待確認",
-    limits: "此區域",
-    decision: "pending",
-  });
-  expect(frameworkReviewReady(world)).toBe(false);
-  world.framework!.extensions[0].decision = "rejected";
-  world.framework!.issues.push({
-    id: "issue",
-    module: "time",
-    message: "年代歧義",
-    recommendation: "使用相對年代",
-    blocking: true,
-    resolution: "",
-  });
-  expect(frameworkReviewReady(world)).toBe(false);
-  world.framework!.issues[0].resolution = "保留相對年代";
-  expect(frameworkReviewReady(world)).toBe(true);
-});
-it("makes the first personal approval explicit and keeps activation disabled before visual approval", () => {
-  const html = renderToStaticMarkup(
-    createElement(WorldReview, {
-      detail: detail(),
-      busy: false,
-      run: async () => true,
-    }),
-  );
-  expect(html).toContain("我已親自檢查");
-  expect(html).not.toMatch(/type="checkbox"[^>]*checked/);
-  expect(html).not.toMatch(/type="checkbox"[^>]*disabled=""/);
-  expect(html).toMatch(/<button[^>]*disabled=""[^>]*>核准目前設定/);
-  expect(html).toMatch(/<button[^>]*disabled=""[^>]*>啟用這個世界/);
-  expect(html).toContain("未提供參考圖");
-  expect(html).toContain("世界識別與定位");
-});
-it("offers an explicit framework refresh for legacy worlds", () => {
-  const legacy = detail();
-  delete legacy.world.framework;
-  legacy.frameworkHash = null;
-  const html = renderToStaticMarkup(
-    createElement(WorldReview, {
-      detail: legacy,
-      busy: false,
-      run: async () => true,
-    }),
-  );
-  expect(html).toContain("建立八模組審核表");
-  expect(html).not.toContain("核准目前設定");
-});
-
-it("never treats a missing or changed framework as personally approved", () => {
-  const approved = detail();
-  approved.world.frameworkApproval = {
-    hash: approved.frameworkHash!,
-    revision: approved.world.revision,
-    approvedAt: "2026-10-27",
-  };
-  expect(isFrameworkApproved(approved)).toBe(true);
-  const changed = structuredClone(approved);
-  changed.frameworkHash = "new-content";
-  expect(isFrameworkApproved(changed)).toBe(false);
-  delete approved.world.framework;
-  expect(isFrameworkApproved(approved)).toBe(false);
-});
-
-it("offers legacy waiting imports a deliberate restart into framework review", () => {
-  const waiting = detail();
-  waiting.world.status = "reading";
-  delete waiting.world.framework;
-  waiting.frameworkHash = null;
-  waiting.importReview = {
-    id: "review",
-    jobId: "job",
-    kind: "brief",
-    message: "需要確認",
-    segmentOrdinal: null,
-    sourceText: "",
-    problems: [],
-    createdAt: "2026-10-27",
-  };
-  const html = renderToStaticMarkup(
-    createElement(WorldPanels, {
-      tab: "source",
-      detail: waiting,
-      busy: false,
-      run: async () => true,
-      retry: () => {},
-      openImportReview: () => {},
-      onWorldUpdated: () => {},
-    }),
-  );
-  expect(html).toContain("改用世界框架繼續整理");
-});
-
-it("keeps source files and world review mounted when changing tabs", () => {
-  const props = {
-    detail: detail(),
-    busy: false,
-    run: async () => true,
-    retry: () => {},
-    openImportReview: () => {},
-    onWorldUpdated: () => {},
-  };
-  const review = renderToStaticMarkup(
-    createElement(WorldPanels, { ...props, tab: "review" }),
-  );
-  expect(review).toContain('aria-label="原作與世界" hidden=""');
-  expect(review).toContain('type="file"');
-  expect(review).toContain(
-    'aria-label="世界審核"><div class="tab-content world-review"',
-  );
-  const source = renderToStaticMarkup(
-    createElement(WorldPanels, { ...props, tab: "source" }),
-  );
-  expect(source).toContain('aria-label="世界審核" hidden=""');
-  expect(source).toContain('aria-label="原作與世界"><div class="tab-content"');
-});
-it("selects an existing named element as the exploration starting place", () => {
-  const current = detail();
-  const html = renderToStaticMarkup(
-    createElement(WorldReview, {
-      detail: current,
-      busy: false,
-      run: async () => true,
-    }),
-  );
-  expect(html).toMatch(/探索起始地點<select[^>]*required=""/);
-  expect(html).toContain(
-    '<option value="start-element" selected="">原作入口 · 地點</option>',
-  );
-  current.world.framework!.exploration.startPlace = "missing-element";
-  expect(frameworkReviewReady(current.world)).toBe(false);
-});
-
-it("shows independent fidelity findings as read-only notes while retaining author resolutions", () => {
-  const current = detail();
-  current.world.framework!.fidelity.notes = ["獨立核對結果，請保留原作限制"];
-  current.world.framework!.issues.push({
-    id: "finding",
-    module: "laws",
-    message: "限制待確認",
-    recommendation: "保留限制",
-    blocking: true,
-    resolution: "由本人保留原作限制",
-  });
-  const html = renderToStaticMarkup(
-    createElement(WorldReview, {
-      detail: current,
-      busy: false,
-      run: async () => true,
-    }),
-  );
-  expect(html).toContain("<li>獨立核對結果，請保留原作限制</li>");
-  expect(html).not.toMatch(/<textarea[^>]*>獨立核對結果/);
-  expect(html).toMatch(/<textarea[^>]*>由本人保留原作限制<\/textarea>/);
-});
-
-it("shows module provenance without allowing the author to claim a different evidence source", () => {
-  const html = renderToStaticMarkup(
-    createElement(WorldReview, {
-      detail: detail(),
-      busy: false,
-      run: async () => true,
-    }),
-  );
-  expect(html).toContain('判斷依據：<span class="badge">原文明示</span>');
-  expect(html).not.toMatch(/判斷依據<select/);
-  expect(html).toContain("修改摘要後，儲存時會標記為本人補充。");
-});
-
-it("keeps a repair upload entry available when all six source image slots are occupied", async () => {
-  const { SourceImagePicker } =
-    await import("../src/client/source-image-picker");
+function sixDetail(): WorldDetail {
   const d = detail();
-  d.world.sourceImages = Array.from({ length: 6 }, (_, i) => ({
-    id: `i${i}`,
-    assetId: `a${i}`,
-    label: `圖片${i}`,
-    sha256: `hash${i}`,
-    status: "reviewed" as const,
-  }));
-  const html = renderToStaticMarkup(
-    createElement(SourceImagePicker, { world: d.world, onUploaded: () => {} }),
+  d.briefHash = "brief-hash";
+  d.world.brief = {
+    version: "world-brief/0.06",
+    world: "世界輪廓",
+    visual: "柔和插畫",
+    viewpoint: "旅人的眼光",
+    time: "故事開始前",
+    naming: "保留原名",
+    boundaries: "保留核心界線",
+    decisions: [],
+    evidence: [],
+    referenceStatus: "not_provided",
+  };
+  return d;
+}
+function review(d = sixDetail()) {
+  return renderToStaticMarkup(
+    createElement(WorldReview, {
+      detail: d,
+      busy: false,
+      run: async () => true,
+    }),
   );
-  expect(html).toContain('type="file"');
-  expect(html).toContain("重新上傳");
-});
-
+}
 function panels(d: WorldDetail, tab = "review") {
   return renderToStaticMarkup(
     createElement(WorldPanels, {
@@ -348,129 +168,176 @@ function panels(d: WorldDetail, tab = "review") {
     }),
   );
 }
-it("shows analysis progress in every tab rather than pretending the review is ready", () => {
-  const d = detail();
-  d.world.status = "reading";
-  delete d.world.framework;
-  d.frameworkHash = null;
-  d.jobs = [
+it("reads all six prefilled editable paragraphs without exposing legacy forms", () => {
+  const html = review();
+  for (const label of [
+    "世界的基本樣貌",
+    "一致的視覺風格",
+    "觀看者與敘述聲音",
+    "旅程時段與揭露界線",
+    "命名與必要專有詞",
+    "延伸創作範圍",
+  ])
+    expect(html).toContain(label);
+  expect(html.match(/maxLength="4000"/g)).toHaveLength(6);
+  expect(html).toContain("世界輪廓</textarea>");
+  for (const text of [
+    "八模組",
+    "核心錨點",
+    "探索起始地點",
+    "元素關係",
+    "地點命名",
+    "忠實度備註",
+  ])
+    expect(html).not.toContain(text);
+});
+it("allows a valid zero-question brief to be approved without saving or selecting an element or style", () => {
+  const d = sixDetail();
+  d.world.selectedStyleId = null;
+  d.world.elements = [];
+  expect(briefReviewReady(d.world)).toBe(true);
+  const html = review(d);
+  expect(html).toContain("目前沒有需要你裁定的問題");
+  expect(html).not.toMatch(/type="checkbox"[^>]*checked/);
+  expect(html).not.toMatch(/type="checkbox"[^>]*disabled/);
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*>核准目前設定/);
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*>啟用這個世界/);
+});
+it("requires explicit answers and leaves suggestions separate from author answers", () => {
+  const d = sixDetail();
+  d.world.brief!.decisions = [
     {
-      id: "job",
-      worldId: d.world.id,
-      kind: "import",
-      status: "running",
-      stage: "世界整理：ecology",
-      completed: 19,
-      total: 37,
-      error: null,
-      createdAt: "2026-10-27",
-      updatedAt: "2026-10-27",
+      id: "q",
+      section: "time",
+      question: "可以推進年代嗎？",
+      suggestion: "維持同一時段",
+      answer: "",
     },
   ];
-  for (const tab of ["source", "review", "visual"]) {
-    const html = panels(d, tab);
-    expect(html).toContain('aria-label="下一步"');
-    expect(html).toContain("正在整理世界設定");
-    expect(html).toContain("完成後會自動顯示審核入口");
-    expect(html).toContain('value="19" max="37"');
-  }
+  expect(briefReviewReady(d.world)).toBe(false);
+  const html = review(d);
+  expect(html).toContain("可以推進年代嗎？");
+  expect(html).toContain("維持同一時段");
+  expect(html).toContain("採用建議");
+  expect(html).toMatch(
+    /aria-label="我的回答：可以推進年代嗎？"[^>]*><\/textarea>/,
+  );
+  expect(html).toContain("1 項必要裁定尚未回答");
+  d.world.brief!.decisions[0].answer = "維持同一時段";
+  expect(briefReviewReady(d.world)).toBe(true);
 });
-it("provides a direct personal review entry for a persisted, unapproved framework", () => {
-  const html = panels(detail());
-  expect(html).toContain("前往核准區");
-  expect(html).toContain('href="#world-review-approval"');
-  expect(html).toContain('id="world-review-approval"');
-  expect(html).not.toContain("請檢查設定內容與最新世界版本。");
+it("rejects changed brief snapshots and never inherits legacy approval for a new brief", () => {
+  const d = sixDetail();
+  const changed = structuredClone(d);
+  changed.briefHash = "new";
+  expect(() => assertReviewSnapshot(changed, d)).toThrow(/版本/);
+  d.world.frameworkApproval = {
+    hash: d.frameworkHash!,
+    revision: d.world.revision,
+    approvedAt: "today",
+  };
+  expect(isFrameworkApproved(d)).toBe(false);
+  d.world.briefApproval = {
+    hash: d.briefHash!,
+    revision: d.world.revision,
+    approvedAt: "today",
+  };
+  expect(isFrameworkApproved(d)).toBe(true);
+  expect(isFrameworkApproved(changed)).toBe(false);
 });
-it("lists each blocking decision beside the approval entry", () => {
+it("offers deliberate legacy migration and retains existing approval without exposing eight modules", () => {
   const d = detail();
-  d.world.selectedStyleId = null;
-  d.world.framework!.extensions.push({
-    id: "ext",
-    module: "life",
-    title: "留白補全",
-    definition: "待確認",
-    reason: "探索用途",
-    limits: "遵守核心",
-    decision: "pending",
-  });
-  d.world.framework!.issues.push({
-    id: "issue",
-    module: "time",
-    message: "年代",
-    recommendation: "保留相對年代",
-    blocking: true,
-    resolution: "",
-  });
-  const html = panels(d);
-  expect(html).toContain("1 項補全或探索範圍尚未決定");
-  expect(html).toContain("1 項重大事項尚未填寫處理決定");
-  expect(html).toContain("前往選擇視覺方向");
+  expect(review(d)).toContain("用六項重新整理");
+  expect(review(d)).not.toContain("八模組");
+  d.world.frameworkApproval = {
+    hash: d.frameworkHash!,
+    revision: d.world.revision,
+    approvedAt: "today",
+  };
+  expect(review(d)).toContain("目前設定已核准");
+  expect(isFrameworkApproved(d)).toBe(true);
+  expect(frameworkReviewReady(d.world)).toBe(true);
 });
-it("lets a fully read world without an active job recover its missing review form", () => {
+it("permits manual migration when source confirmation is pending and blocks active duplicate jobs", () => {
   const d = detail();
-  delete d.world.framework;
   d.world.status = "reading";
-  d.frameworkHash = null;
-  const html = panels(d);
-  expect(html).toMatch(/<button class="primary">建立八模組審核表/);
-});
-it("exposes the source confirmation entry when analysis needs user input", () => {
-  const d = detail();
-  delete d.world.framework;
-  d.world.status = "reading";
+  d.source.processedCount = 0;
   d.importReview = {
     id: "r",
-    jobId: "job",
-    kind: "processing",
-    message: "需要確認",
+    jobId: "j",
+    kind: "brief",
+    message: "待確認",
     segmentOrdinal: null,
     sourceText: "",
     problems: [],
-    createdAt: "2026-10-27",
+    createdAt: "today",
   };
-  expect(panels(d)).toContain("開啟確認對話");
-});
-it("offers checkpoint retry when analysis has failed", () => {
-  const d = detail();
-  delete d.world.framework;
-  d.world.status = "reading";
-  d.jobs = [
-    {
-      id: "job",
-      worldId: d.world.id,
-      kind: "import",
-      status: "failed",
-      stage: "reading",
-      completed: 1,
-      total: 8,
-      error: "Temporary failure",
-      createdAt: "2026-10-27",
-      updatedAt: "2026-10-27",
-    },
-  ];
-  expect(panels(d)).toContain("從已保存進度重試");
-});
-
-it("labels the review tab by actual readiness and never changes approval state", () => {
-  const d = detail();
-  expect(reviewTabStatus(d)).toBe("待核准");
-  delete d.world.framework;
-  expect(reviewTabStatus(d)).toBe("待建立");
+  expect(review(d)).toMatch(/<button[^>]*class="primary"[^>]*>用六項重新整理/);
   d.jobs = [
     {
       id: "j",
-      worldId: d.world.id,
-      kind: "import",
+      worldId: "world",
+      kind: "analyze",
       status: "running",
-      stage: "reading",
-      completed: 1,
-      total: 8,
+      stage: "read",
+      completed: 0,
+      total: 1,
       error: null,
-      createdAt: "now",
-      updatedAt: "now",
+      createdAt: "today",
+      updatedAt: "today",
     },
   ];
-  expect(reviewTabStatus(d)).toBe("整理中");
-  expect(d.world.frameworkApproval).toBeUndefined();
+  expect(review(d)).toMatch(/<button[^>]*disabled=""[^>]*>用六項重新整理/);
+});
+it("keeps the review and source mounted across tabs to retain unsaved text", () => {
+  const d = sixDetail();
+  expect(panels(d, "source")).toContain('aria-label="世界確認" hidden=""');
+  expect(panels(d, "visual")).toContain('aria-label="世界確認" hidden=""');
+  expect(panels(d, "review")).toContain('aria-label="原作與世界" hidden=""');
+  expect(panels(d, "source")).toContain("世界輪廓</textarea>");
+  expect(panels(d, "source")).not.toContain("世界識別與定位");
+});
+it("uses brief readiness in guidance and offers quick approval", () => {
+  const d = sixDetail();
+  delete d.world.framework;
+  expect(reviewTabStatus(d)).toBe("待核准");
+  expect(panels(d)).toContain('href="#world-review-approval"');
+  expect(panels(d)).toContain("六項創作簡報");
+});
+it("offers a whole-world visual preview without requiring an element", () => {
+  const d = sixDetail();
+  d.world.elements = [];
+  d.world.briefApproval = {
+    hash: d.briefHash!,
+    revision: d.world.revision,
+    approvedAt: "today",
+  };
+  const html = panels(d, "visual");
+  expect(html).toContain(
+    '<option value="world" selected="">整體世界景象</option>',
+  );
+  expect(html).toMatch(/<button class="primary">生成視覺預覽/);
+});
+it("blocks approval while reading or while content hash is unavailable", () => {
+  const d = sixDetail();
+  d.world.status = "reading";
+  expect(review(d)).toMatch(/type="checkbox"[^>]*disabled=""/);
+  d.world.status = "draft";
+  d.briefHash = null;
+  expect(review(d)).toMatch(/type="checkbox"[^>]*disabled=""/);
+});
+it("guides an unapproved legacy world toward explicit migration", () => {
+  const html = panels(detail());
+  expect(html).toContain("下一步：整理六項創作簡報");
+  expect(html).not.toContain("請核對六項創作簡報與必要裁定");
+});
+it("never renders editable metadata or evidence in the six section form", () => {
+  const d = sixDetail();
+  d.world.brief!.evidence = [
+    { section: "world", segmentId: "segment-one", quote: "可追溯的原文" },
+  ];
+  const html = review(d);
+  expect(html).toContain("查看已核對的原文依據");
+  expect(html).toContain("<blockquote>可追溯的原文");
+  expect(html).not.toMatch(/<textarea[^>]*>可追溯的原文/);
 });

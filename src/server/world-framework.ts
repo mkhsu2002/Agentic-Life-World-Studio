@@ -1,3 +1,4 @@
+import { assertBriefReviewed, approvedBriefContext } from "./world-brief";
 import type { WorldDraft } from "../shared/contracts";
 import { frameworkSchema } from "../shared/world-framework";
 import { DomainError, sha256 } from "./domain";
@@ -36,6 +37,7 @@ export function validateFrameworkReview(w: WorldDraft) {
     throw new DomainError("FRAMEWORK_RELATION_INVALID");
 }
 export async function assertFrameworkReviewed(w: WorldDraft) {
+  if (w.brief) return assertBriefReviewed(w);
   validateFrameworkReview(w);
   if (
     !w.frameworkApproval ||
@@ -46,6 +48,7 @@ export async function assertFrameworkReviewed(w: WorldDraft) {
 }
 /** Runtime-only projection: pending/rejected extensions never enter image or publication context. */
 export function approvedFrameworkContext(w: WorldDraft) {
+  if (w.brief) return approvedBriefContext(w);
   const f = w.framework;
   return f
     ? {

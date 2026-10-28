@@ -272,6 +272,7 @@ sourceImageRoutes.post("/worlds/:id/source-images", async (c) => {
   const updated = revised(w);
   if (w.status === "reading") updated.status = "reading";
   delete updated.framework;
+  delete updated.brief;
   const statements = await sourceImageStatements(c.env, updated, images);
   await saveWorld(
     c.env,

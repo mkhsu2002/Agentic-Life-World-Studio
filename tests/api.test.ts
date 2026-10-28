@@ -1788,3 +1788,348 @@ it("allows a 15 MB image import through the request limit and commits all refere
     sqlite.prepare("SELECT COUNT(*) AS n FROM assets").get(),
   ).toMatchObject({ n: 3 });
 }, 15000);
+
+async function seedCreativeBrief(withDecision = false) {
+  const { worldBriefSchema } = await import("../src/shared/world-brief");
+  const { briefHash } = await import("../src/server/world-brief");
+  const w = fixture();
+  w.elements = [];
+  w.questions = [];
+  w.styles = [
+    {
+      id: "style",
+      name: "Source style",
+      description: "Source visual",
+      medium: "Drawing",
+      palette: ["#112233"],
+      lighting: "soft",
+      materials: [],
+      forbidden: [],
+      evidence: [],
+    },
+  ];
+  w.selectedStyleId = "style";
+  w.brief = worldBriefSchema.parse({
+    version: "world-brief/0.06",
+    world: "A quiet enclosed world",
+    visual: "Soft drawing",
+    viewpoint: "An unnamed observer",
+    time: "Before the ending, no spoilers",
+    naming: "Retain known names",
+    boundaries: "New views are permitted, no changes to core rules",
+    referenceStatus: "not_provided",
+    evidence: [],
+    decisions: withDecision
+      ? [
+          {
+            id: "observer",
+            section: "viewpoint",
+            question: "採用哪個觀看視角？",
+            suggestion: "不具名觀察者",
+            answer: "",
+          },
+        ]
+      : [],
+  });
+  sqlite
+    .prepare("UPDATE worlds SET document_json=? WHERE id='w'")
+    .run(JSON.stringify(w));
+  sqlite.prepare("UPDATE sources SET processed_count=1 WHERE id='s'").run();
+  return {
+    w,
+    hash: await briefHash(w),
+    headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+  };
+}
+it("saves only six creative sections and preserves the questions the author still needs to answer", async () => {
+  const { w, headers } = await seedCreativeBrief(true);
+  const response = await app.request(
+    "/api/worlds/w/brief",
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        recordVersion: 1,
+        brief: { ...w.brief, decisions: [] },
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(409);
+  expect((await getWorld(env, "w")).revision).toBe(1);
+});
+it("preserves server-owned questions and evidence while allowing author answers", async () => {
+  const { w, headers } = await seedCreativeBrief(true);
+  const b = structuredClone(w.brief!);
+  b.world = "Author-adjusted world";
+  b.decisions[0].answer = "不具名觀察者";
+  b.decisions[0].question = "Forged question";
+  b.referenceStatus = "reviewed";
+  const response = await app.request(
+    "/api/worlds/w/brief",
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ revision: 1, recordVersion: 1, brief: b }),
+    },
+    env,
+  );
+  expect(response.status).toBe(200);
+  const saved = await getWorld(env, "w");
+  expect(saved.brief!.decisions[0].question).toBe(
+    w.brief!.decisions[0].question,
+  );
+  expect(saved.brief!.decisions[0].answer).toBe("不具名觀察者");
+  expect(saved.brief!.referenceStatus).toBe("not_provided");
+  expect(saved.briefApproval).toBeNull();
+  expect(saved.visualApproval).toBeNull();
+});
+it("blocks unanswered creative decisions without producing approval or snapshot records", async () => {
+  const { headers, hash } = await seedCreativeBrief(true);
+  const res = await app.request(
+    "/api/worlds/w/brief-approval",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ revision: 1, recordVersion: 1, hash }),
+    },
+    env,
+  );
+  expect(res.status).toBe(409);
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM approvals").get(),
+  ).toMatchObject({ n: 0 });
+});
+it("approves a complete six-part brief without requiring an element catalogue or redundant save", async () => {
+  const { headers, hash } = await seedCreativeBrief();
+  const res = await app.request(
+    "/api/worlds/w/brief-approval",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ revision: 1, recordVersion: 1, hash }),
+    },
+    env,
+  );
+  expect(res.status).toBe(200);
+  expect((await getWorld(env, "w")).briefApproval?.hash).toBe(hash);
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM world_snapshots").get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM approvals WHERE kind='brief'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) AS n FROM audit WHERE type='brief.approved'")
+      .get(),
+  ).toMatchObject({ n: 1 });
+});
+it("rejects unseen brief hashes and stale record versions", async () => {
+  const { headers, hash } = await seedCreativeBrief();
+  for (const body of [
+    { revision: 1, recordVersion: 1, hash: "b".repeat(64) },
+    { revision: 1, recordVersion: 2, hash },
+  ]) {
+    const res = await app.request(
+      "/api/worlds/w/brief-approval",
+      { method: "POST", headers, body: JSON.stringify(body) },
+      env,
+    );
+    expect(res.status).toBe(409);
+  }
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM approvals").get(),
+  ).toMatchObject({ n: 0 });
+});
+it("allows whole-world visual calibration without inventing a starting place", async () => {
+  const { w, headers, hash } = await seedCreativeBrief();
+  w.briefApproval = { hash, revision: 1, approvedAt: "now" };
+  sqlite
+    .prepare("UPDATE worlds SET document_json=? WHERE id='w'")
+    .run(JSON.stringify(w));
+  env.JOBS = { send: vi.fn(async () => {}) } as unknown as Queue;
+  const res = await app.request(
+    "/api/worlds/w/visual-previews",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        styleId: "style",
+        elementId: "world",
+      }),
+    },
+    env,
+  );
+  expect(res.status).toBe(202);
+});
+it("activates a brief world with approved visual calibration and no pre-extracted entities", async () => {
+  const { w, headers, hash } = await seedCreativeBrief();
+  w.briefApproval = { hash, revision: 1, approvedAt: "now" };
+  w.previews = [
+    {
+      id: "p",
+      assetId: "asset",
+      elementId: "world",
+      styleId: "style",
+      revision: 1,
+      feedback: "",
+      review: { verdict: "pass", notes: [] },
+      createdAt: "now",
+    },
+  ];
+  w.visualApproval = { previewId: "p", revision: 1, approvedAt: "now" };
+  sqlite
+    .prepare("UPDATE worlds SET document_json=? WHERE id='w'")
+    .run(JSON.stringify(w));
+  const res = await app.request(
+    "/api/worlds/w/confirm",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ revision: 1, recordVersion: 1, hash }),
+    },
+    env,
+  );
+  expect(res.status).toBe(200);
+  expect((await getWorld(env, "w")).status).toBe("confirmed");
+});
+
+it("chat revises only creative paragraphs and cannot answer or approve for the author", async () => {
+  const { w, headers } = await seedCreativeBrief(true);
+  const { briefHash } = await import("../src/server/world-brief");
+  w.briefApproval = {
+    hash: await briefHash(w),
+    revision: 1,
+    approvedAt: "now",
+  };
+  sqlite
+    .prepare("UPDATE worlds SET document_json=? WHERE id='w'")
+    .run(JSON.stringify(w));
+  env.MODEL_API_KEY = "test-only";
+  const proposal = {
+    world: w.brief!.world,
+    visual: w.brief!.visual,
+    viewpoint: w.brief!.viewpoint,
+    time: w.brief!.time,
+    naming: w.brief!.naming,
+    boundaries: w.brief!.boundaries,
+  };
+  proposal.visual = "更柔和的視覺方向";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      modelResult({
+        assistant: "已提出待確認的調整。",
+        proposed: {
+          ...proposal,
+          decisions: [{ id: "observer", answer: "AI-filled" }],
+          briefApproval: { approvedAt: "forged" },
+        },
+      }),
+    ),
+  );
+  const res = await app.request(
+    "/api/worlds/w/chat",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        message: "請把視覺方向改得更柔和。",
+      }),
+    },
+    env,
+  );
+  expect(res.status).toBe(200);
+  const saved = await getWorld(env, "w");
+  expect(saved.brief!.visual).toBe("更柔和的視覺方向");
+  expect(saved.brief!.decisions[0].answer).toBe("");
+  expect(saved.briefApproval).toBeNull();
+  expect(saved.visualApproval).toBeNull();
+  expect(saved.summary).toBe(w.summary);
+});
+it("keeps all creative brief decisions, references and private boundaries out of site preview DTOs", async () => {
+  const { w, headers } = await seedCreativeBrief();
+  const { briefHash } = await import("../src/server/world-brief");
+  w.brief!.boundaries = "PRIVATE_CREATIVE_BOUNDARY";
+  w.brief!.viewpoint = "PRIVATE_VIEWPOINT";
+  w.briefApproval = {
+    hash: await briefHash(w),
+    revision: 1,
+    approvedAt: "now",
+  };
+  w.previews = [
+    {
+      id: "p",
+      assetId: "asset",
+      elementId: "world",
+      styleId: "style",
+      revision: 1,
+      feedback: "",
+      review: { verdict: "pass", notes: [] },
+      createdAt: "now",
+    },
+  ];
+  w.visualApproval = { previewId: "p", revision: 1, approvedAt: "now" };
+  w.status = "confirmed";
+  w.translations.en = {
+    locale: "en",
+    status: "approved",
+    sourceRevision: 1,
+    title: "Enclosed World",
+    tagline: "Explore quietly",
+    introduction: "A quiet enclosed world.",
+    elements: {},
+    issues: [],
+    approvedAt: "now",
+  };
+  sqlite
+    .prepare("UPDATE worlds SET document_json=? WHERE id='w'")
+    .run(JSON.stringify(w));
+  const res = await app.request(
+    "/api/worlds/w/site-previews",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        revision: 1,
+        slug: "creative-brief",
+        locales: ["en"],
+      }),
+    },
+    env,
+  );
+  expect(res.status).toBe(201);
+  const row = sqlite.prepare("SELECT content_json FROM releases").get() as {
+    content_json: string;
+  };
+  expect(row.content_json).not.toMatch(
+    /PRIVATE_|briefApproval|decisions|referenceStatus|evidence/,
+  );
+  expect(JSON.parse(row.content_json).en.elements).toEqual([]);
+});
+it("uses the compact pipeline only when the author explicitly requests reanalysis", async () => {
+  const { headers } = await seedCreativeBrief();
+  env.JOBS = { send: vi.fn(async () => {}) } as unknown as Queue;
+  const res = await app.request(
+    "/api/worlds/w/analyze",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ revision: 1, recordVersion: 1 }),
+    },
+    env,
+  );
+  expect(res.status).toBe(202);
+  const row = sqlite
+    .prepare("SELECT payload_json FROM jobs WHERE kind='import'")
+    .get() as { payload_json: string };
+  expect(JSON.parse(row.payload_json)).toEqual({ analysisVersion: "0.06" });
+  expect((await getWorld(env, "w")).briefApproval).toBeNull();
+  expect((await getWorld(env, "w")).brief).toBeUndefined();
+});

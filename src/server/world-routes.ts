@@ -143,12 +143,13 @@ worldRoutes.post("/worlds/:id/analyze", async (c) => {
     ...revised(w),
     status: "reading" as const,
     framework: undefined,
+    brief: undefined,
     questions: [],
     resolvedDecisions: undefined,
   };
   const s = await sourceInfo(c.env, w.sourceId);
   const jobId = newId("job"),
-    payload = { analysisVersion: "0.03" };
+    payload = { analysisVersion: "0.06" };
   const logicalKey = await sha256(
     JSON.stringify({ worldId: w.id, kind: "import", payload }),
   );
@@ -158,7 +159,7 @@ worldRoutes.post("/worlds/:id/analyze", async (c) => {
     next,
     w.revision,
     "world.analysis_requested",
-    "作者要求依世界框架重新整理原作",
+    "作者要求以六項創作簡報重新整理原作",
     [
       c.env.DB.prepare(
         "UPDATE import_reviews SET status='resolved',resolution_json=?,resolved_at=? WHERE world_id=? AND status='open'",
@@ -175,7 +176,7 @@ worldRoutes.post("/worlds/:id/analyze", async (c) => {
       ).bind(
         jobId,
         w.id,
-        s.segmentCount + 8,
+        s.segmentCount + 4,
         JSON.stringify(payload),
         now(),
         now(),

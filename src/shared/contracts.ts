@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WorldBrief } from "./world-brief";
 import type {
   WorldFramework,
   FrameworkApproval,
@@ -101,6 +102,8 @@ export type ImportReview = {
   createdAt: string;
 };
 export type WorldDraft = {
+  brief?: WorldBrief;
+  briefApproval?: FrameworkApproval;
   framework?: WorldFramework;
   frameworkApproval?: FrameworkApproval;
   sourceImages?: SourceImage[];
@@ -177,6 +180,7 @@ export type SiteRelease = {
   createdAt: string;
 };
 export type WorldDetail = {
+  briefHash?: string | null;
   frameworkHash: string | null;
   importReview: ImportReview | null;
   importSuggestions: string[];

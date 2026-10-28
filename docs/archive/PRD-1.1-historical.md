@@ -7,11 +7,11 @@
 
 用途：Meta Global AI Developer Hackathon 2026 · Indie developer track · Build for Your World
 
-文件狀態：框架已確認，v0.03 優先實作世界解析、首次審核與視覺校準；完整產品願景仍有後續範圍。新流程 runtime 契約以 `src/shared/world-framework.ts` 及 [v0.03 release](RELEASE-v0.03.md) 為準；下列設計文件是邏輯規格，不是資料表逐一對照。產品部署、驗證與限制以 README／release 記錄為準。第 2.2 節 Pydantic 仍為 PRD 1.0 歷史參考，並非本版已部署 API。
+文件狀態：框架已確認，v0.03 優先實作世界解析、首次審核與視覺校準；完整產品願景仍有後續範圍。新流程 runtime 契約以 `src/shared/world-framework.ts` 及 [v0.03 release](../RELEASE-v0.03.md) 為準；下列設計文件是邏輯規格，不是資料表逐一對照。產品部署、驗證與限制以 README／release 記錄為準。第 2.2 節 Pydantic 仍為 PRD 1.0 歷史參考，並非本版已部署 API。
 
-- [最小世界框架與初始審核](design/WORLD-FRAMEWORK-v0.03.md)：八個內容模組、共用元素／命名、兩組運行設定。
-- [世界資料契約草案](design/WORLD-DATA-CONTRACT-v0.03.md)：欄位依據、核心錨點、補全與生成範圍、本人核准及公開投影。
-- [初始化 Agent 職責與流程](design/AGENT-WORKFLOW-v0.03.md)：總架構師先理解、專業角色細化、獨立忠實度審核與首次確認表。
+- [最小世界框架與初始審核](../design/WORLD-FRAMEWORK-v0.03.md)：八個內容模組、共用元素／命名、兩組運行設定。
+- [世界資料契約草案](../design/WORLD-DATA-CONTRACT-v0.03.md)：欄位依據、核心錨點、補全與生成範圍、本人核准及公開投影。
+- [初始化 Agent 職責與流程](../design/AGENT-WORKFLOW-v0.03.md)：總架構師先理解、專業角色細化、獨立忠實度審核與首次確認表。
 
 > **把故事編譯成有記憶的世界，讓每一次探索都成為它的歷史。**
 
@@ -235,7 +235,7 @@ Registry 與 WorldSpec 的 entities/claims 使用同一組資料與 ID：WorldSp
 
 ### 1.6 本體：世界由什麼構成
 
-**v0.03 已確認框架：**八個世界內容模組為「識別與定位、時代與變遷、運作法則、空間與區域、環境與感官、生命與生態、文明文化與人造物、視覺規範」。命名與多語系元素庫貫穿各模組；受眾／觀察方式及起始狀態／變化邊界分開保存。AI 先填方案，未知與不適用均合法，不要求作者手動補齊所有欄位。詳見 [最小世界框架](design/WORLD-FRAMEWORK-v0.03.md)。下列技術本體用來承載這些內容，不能取代世界層級理解。
+**v0.03 已確認框架：**八個世界內容模組為「識別與定位、時代與變遷、運作法則、空間與區域、環境與感官、生命與生態、文明文化與人造物、視覺規範」。命名與多語系元素庫貫穿各模組；受眾／觀察方式及起始狀態／變化邊界分開保存。AI 先填方案，未知與不適用均合法，不要求作者手動補齊所有欄位。詳見 [最小世界框架](../design/WORLD-FRAMEWORK-v0.03.md)。下列技術本體用來承載這些內容，不能取代世界層級理解。
 
 | 概念 | 必要資料 | 語義邊界 |
 |---|---|---|
@@ -355,7 +355,7 @@ Registry 與 WorldSpec 的 entities/claims 使用同一組資料與 ID：WorldSp
 
 ### 2.1 協定原則
 
-協定名稱：**UTSP — Universal Text-to-Sandbox Protocol**。下列 1.0 參考協定保留作歷史架構；v0.03 的新增邏輯結構以 [資料契約草案](design/WORLD-DATA-CONTRACT-v0.03.md) 為準，實際 TypeScript/Zod 契約、migration0005 與 API 以程式及 release 為準。
+協定名稱：**UTSP — Universal Text-to-Sandbox Protocol**。下列 1.0 參考協定保留作歷史架構；v0.03 的新增邏輯結構以 [資料契約草案](../design/WORLD-DATA-CONTRACT-v0.03.md) 為準，實際 TypeScript/Zod 契約、migration0005 與 API 以程式及 release 為準。
 
 - 所有 ID 在同一 world namespace 中穩定；所有查詢同時限定 tenant、world、branch，UUID 不是存取授權。
 - `schema_version` 管格式；`spec_version` 管設定；`state_version` 管可變狀態。不可混用。
@@ -1087,7 +1087,7 @@ flowchart LR
     REPORT --> A
 ```
 
-**初始化角色以 [七角色設計](design/AGENT-WORKFLOW-v0.03.md) 為準；下表包含來源輔助工作與後續營運能力，並非初始化固定呼叫順序。**Evidence Reader 是來源輔助工作，World Compiler 是總架構師的整合能力，Confirmation Director 是 Studio 的確認整理能力。視覺導演在初始化建立 VisualBible，在運行期依已核准版本製作 Brief，兩者權限不同。
+**初始化角色以 [七角色設計](../design/AGENT-WORKFLOW-v0.03.md) 為準；下表包含來源輔助工作與後續營運能力，並非初始化固定呼叫順序。**Evidence Reader 是來源輔助工作，World Compiler 是總架構師的整合能力，Confirmation Director 是 Studio 的確認整理能力。視覺導演在初始化建立 VisualBible，在運行期依已核准版本製作 Brief，兩者權限不同。
 
 來源閱讀可針對不同段落並行；世界內同一 branch 的提交必須序列化。多個公開網站可並行運行，但以 site budget 與 provider rate limit 控制全域並行量。多 Agent 的價值在責任分離與可稽核輸出，不以角色數量當作智能證據。
 
@@ -1118,7 +1118,7 @@ flowchart LR
 
 Context manifest 至少列出 `tenant_id、site_id、world_id、branch_id、spec_version、state_version、registry_revision、terminology_version、source_segment_ids、visible_claim_ids、tool_allowlist、budget、locale`，並有內容雜湊。原文與工具結果都標示為資料；runtime 再驗證 world scope。不同世界的 context cache 以 tenant/world/spec/hash 分區；翻譯快取再包含 locale、source hash 與 term version，不共用上一個世界的對話歷史。
 
-以下為角色能力的提示規格，不代表現有 runtime 已更新。v0.03 初始化先採 [新版角色與共用約束](design/AGENT-WORKFLOW-v0.03.md)，再組合來源與整合能力；執行時以具名 schema 與 JSON context 注入動態資料，不把展示小說寫進提示詞。
+以下為角色能力的提示規格，不代表現有 runtime 已更新。v0.03 初始化先採 [新版角色與共用約束](../design/AGENT-WORKFLOW-v0.03.md)，再組合來源與整合能力；執行時以具名 schema 與 JSON context 注入動態資料，不把展示小說寫進提示詞。
 
 ### 3.3 通用 System Prompt
 

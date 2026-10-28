@@ -1,3 +1,4 @@
+import { runBriefAnalysis } from "./brief-analysis";
 import { runWorldAnalysis } from "./world-analysis";
 import {
   assertFrameworkReviewed,
@@ -90,6 +91,16 @@ async function complete(env: Env, job: JobRow, message: string) {
 }
 async function readSegment(env: Env, job: JobRow) {
   const w = await getWorld(env, job.world_id);
+  if (JSON.parse(job.payload_json).analysisVersion === "0.06") {
+    if (w.status !== "reading" && w.brief) {
+      await complete(env, job, "Creative brief already exists");
+      return;
+    }
+    const progress = await runBriefAnalysis(env, job, w);
+    if (!progress.done)
+      await resume(env, job, progress.completed, progress.message);
+    return;
+  }
   const modern = JSON.parse(job.payload_json).analysisVersion === "0.03";
   if (w.status !== "reading") {
     const coverage = await env.DB.prepare(
@@ -440,7 +451,16 @@ async function visual(env: Env, job: JobRow) {
   await assertFrameworkReviewed(w);
   const referenceImages = await sourceImageData(env, w);
   const style = w.styles.find((s) => s.id === p.styleId),
-    element = w.elements.find((e) => e.id === p.elementId);
+    element =
+      w.brief && p.elementId === "world"
+        ? {
+            id: "world",
+            kind: "world_view",
+            sourceName: w.title,
+            definition: w.summary,
+            features: [],
+          }
+        : w.elements.find((e) => e.id === p.elementId);
   if (!style || !element) throw new DomainError("VISUAL_TARGET_INVALID");
   const context = {
     era: w.era,
@@ -451,7 +471,9 @@ async function visual(env: Env, job: JobRow) {
     authorDecisions: w.questions,
     approvedWorld: approvedFrameworkContext(w),
   };
-  const prompt = `Create a calibration artwork depicting only this source-supported world element. Documentary composition without adding camera equipment or a photographer. Current confirmed interpretation and author decisions: ${JSON.stringify(context)}. Follow its historical time slice; if a feature conflicts with that slice, depict only supported compatible details. Style: ${JSON.stringify(style)}. Element: ${JSON.stringify(element)}. Author feedback: ${p.feedback || "None"}. Preserve all locked morphological features. No titles, labels, watermark or text. Interpret unknown details conservatively; no unrelated world elements.`;
+  const prompt = w.brief
+    ? `Create a visual calibration artwork showing one coherent view of this world. Selected subject: ${JSON.stringify(element)}. Depict this specific subject when it is an existing element; use a coherent overall scene only for the world_view target. Approved creative brief and author decisions: ${JSON.stringify(approvedFrameworkContext(w))}. Rendering hints: ${JSON.stringify(style)}. The approved brief takes priority over earlier rendering hints if they conflict. Follow its visual medium, time slice, disclosure boundaries and permitted extensions. Include a visible traveler only if the approved viewpoint explicitly requires one. Author feedback: ${p.feedback || "None"}. No text, titles, watermark, UI, production instructions or unrelated world details.`
+    : `Create a calibration artwork depicting only this source-supported world element. Documentary composition without adding camera equipment or a photographer. Current confirmed interpretation and author decisions: ${JSON.stringify(context)}. Follow its historical time slice; if a feature conflicts with that slice, depict only supported compatible details. Style: ${JSON.stringify(style)}. Element: ${JSON.stringify(element)}. Author feedback: ${p.feedback || "None"}. Preserve all locked morphological features. No titles, labels, watermark or text. Interpret unknown details conservatively; no unrelated world elements.`;
   const checkpointKey = `jobs/${job.id}/visual-asset.json`;
   const inputHash = await sha256(
     JSON.stringify({

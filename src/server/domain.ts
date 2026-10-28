@@ -33,7 +33,7 @@ export function validateConfirmation(
     preview.review.verdict !== "pass"
   )
     throw new DomainError("VISUAL_NOT_APPROVED");
-  if (!world.elements.length || !world.summary.trim())
+  if ((!world.brief && !world.elements.length) || !world.summary.trim())
     throw new DomainError("WORLD_EMPTY");
 }
 export function validateLocale(world: WorldDraft, t: Translation) {
@@ -90,6 +90,7 @@ export function revised(world: WorldDraft): WorldDraft {
     revision: world.revision + 1,
     status: "draft",
     frameworkApproval: null,
+    briefApproval: null,
     visualApproval: null,
     translations: Object.fromEntries(
       Object.entries(world.translations).map(([k, v]) => [

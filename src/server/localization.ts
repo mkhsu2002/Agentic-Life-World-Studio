@@ -104,12 +104,15 @@ async function assertCurrent(world: WorldDraft, payload: Payload) {
 function context(world: WorldDraft, elements: Element[]) {
   return {
     summary: world.summary,
+    ...(world.brief && world.briefApproval
+      ? { approvedWorldDescription: world.brief.world }
+      : {}),
     era: world.era,
     geography: world.geography,
     ecology: world.ecology,
     rules: world.rules,
     questions: world.questions,
-    ...(world.frameworkApproval
+    ...(!world.brief && world.frameworkApproval
       ? { approvedWorld: approvedFrameworkContext(world) }
       : {}),
     elements,

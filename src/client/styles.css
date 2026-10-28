@@ -3923,3 +3923,44 @@ progress::-moz-progress-bar {
     width: 100%;
   }
 }
+
+/* Six-part author brief keeps the reading order clear on all screen sizes. */
+.brief-sections {
+  display: grid;
+  gap: 22px;
+}
+.brief-section > label {
+  margin-bottom: 0 !important;
+}
+.brief-section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-family: var(--serif);
+  font-size: 21px;
+  line-height: 1.7;
+}
+.brief-section-heading .eyebrow {
+  flex-shrink: 0;
+}
+.brief-section textarea {
+  line-height: 1.9;
+  min-height: 160px;
+}
+.brief-suggestion {
+  border-left: 2px solid var(--accent);
+  padding-left: 16px;
+}
+.brief-suggestion p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .brief-section-heading {
+    font-size: 19px;
+    gap: 10px;
+  }
+  .brief-section textarea {
+    min-height: 190px;
+  }
+}

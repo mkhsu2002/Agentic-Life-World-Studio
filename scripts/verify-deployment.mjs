@@ -7,7 +7,7 @@ for (let attempt = 0; attempt < 6; attempt++) {
   try {
     const response = await fetch(`${base}/api/health`, { cache: 'no-store' });
     const health = await response.json();
-    if (!response.ok || health.status !== 'ok' || health.revision !== revision || health.environment !== environment || health.version !== expectedVersion || health.contract !== 'utsp-studio/0.03') throw new Error(`Health mismatch: ${JSON.stringify(health)}`);
+    if (!response.ok || health.status !== 'ok' || health.revision !== revision || health.environment !== environment || health.version !== expectedVersion || health.contract !== 'utsp-studio/0.06') throw new Error(`Health mismatch: ${JSON.stringify(health)}`);
     const privateResponse = await fetch(`${base}/api/overview`, { redirect: 'manual' });
     if (privateResponse.status !== 401) throw new Error('Private Studio API is not protected');
     const page = await fetch(base);

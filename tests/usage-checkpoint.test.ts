@@ -462,3 +462,39 @@ it("keeps the generated-image charge uncertain if the durable checkpoint cannot 
     sqlite.prepare("SELECT COUNT(*) AS n FROM assets").get(),
   ).toMatchObject({ n: 0 });
 });
+
+it("includes the selected brief element in generation inputs as well as visual QA", async () => {
+  await seed("visual");
+  const w = await getWorld(env, "w");
+  const { worldBriefSchema } = await import("../src/shared/world-brief");
+  const { briefHash } = await import("../src/server/world-brief");
+  w.brief = worldBriefSchema.parse({
+    version: "world-brief/0.06",
+    world: "A room with a stone",
+    visual: "Soft drawing",
+    viewpoint: "An observer",
+    time: "Before the ending",
+    naming: "Retain names",
+    boundaries: "Keep the enclosure",
+    decisions: [],
+    evidence: [],
+    referenceStatus: "not_provided",
+  });
+  w.briefApproval = {
+    hash: await briefHash(w),
+    revision: w.revision,
+    approvedAt: "now",
+  };
+  sqlite
+    .prepare("UPDATE worlds SET document_json=? WHERE id='w'")
+    .run(JSON.stringify(w));
+  const fetcher = model();
+  await processJob(env, "job");
+  const call = (fetcher.mock.calls as unknown as [string, RequestInit][]).find(
+    ([url]) => url.includes("/images/"),
+  );
+  expect(call).toBeDefined();
+  expect(JSON.parse(String(call![1].body)).prompt).toContain(
+    JSON.stringify(w.elements[0]),
+  );
+});

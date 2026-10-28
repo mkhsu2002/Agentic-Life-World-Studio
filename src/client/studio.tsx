@@ -463,7 +463,7 @@ export function Studio() {
     ) || [];
   const tabs = [
     ["source", "原作與世界"],
-    ["review", "世界審核"],
+    ["review", "世界確認"],
     ["registry", "元素登錄"],
     ["visual", "視覺方向"],
     ["chat", "AI 對話"],
@@ -809,7 +809,12 @@ export function Studio() {
                 onWorldUpdated={(world) => {
                   setDetail((current) =>
                     current?.world.id === world.id
-                      ? { ...current, world, frameworkHash: null }
+                      ? {
+                          ...current,
+                          world,
+                          frameworkHash: null,
+                          briefHash: null,
+                        }
                       : current,
                   );
                   void loadWorld(world.id).catch(handleError);

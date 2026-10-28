@@ -1,3 +1,5 @@
+import { briefHash } from "./world-brief";
+import { briefRoutes, briefConversation } from "./brief-routes";
 import { worldRoutes, assertRecord } from "./world-routes";
 import { frameworkHash, assertFrameworkReviewed } from "./world-framework";
 import {
@@ -198,7 +200,7 @@ app.get("/api/health", async (c) => {
     version: PRODUCT_VERSION,
     revision: c.env.BUILD_REVISION || "local",
     environment: c.env.ENVIRONMENT,
-    contract: "utsp-studio/0.03",
+    contract: "utsp-studio/0.06",
   });
 });
 app.get("/api/session", async (c) =>
@@ -340,7 +342,7 @@ app.post("/api/sources", async (c) => {
     );
   }
   const jobId = newId("job"),
-    payload = { analysisVersion: "0.03" };
+    payload = { analysisVersion: "0.06" };
   const logicalKey = await sha256(
     JSON.stringify({ worldId, kind: "import", payload }),
   );
@@ -356,7 +358,7 @@ app.post("/api/sources", async (c) => {
     ).bind(
       jobId,
       worldId,
-      segments.length + 8,
+      segments.length + 4,
       JSON.stringify(payload),
       stamp,
       stamp,
@@ -398,6 +400,7 @@ app.get("/api/worlds/:id", async (c) => {
   return c.json({
     world: w,
     frameworkHash: w.framework ? await frameworkHash(w) : null,
+    briefHash: w.brief ? await briefHash(w) : null,
     importReview,
     importSuggestions: suggestions,
     source,
@@ -506,6 +509,7 @@ app.post("/api/worlds/:id/chat", async (c) => {
   const w = await getWorld(c.env, c.req.param("id"));
   assertRevision(w, b.revision);
   if (w.status === "reading") throw new DomainError("SOURCE_INCOMPLETE");
+  if (w.brief) return briefConversation(c, w, b.message);
   const schema = z.object({
     assistant: z.string(),
     proposed: z
@@ -601,7 +605,8 @@ app.post("/api/worlds/:id/visual-previews", async (c) => {
       "Complete and apply the world decisions before visual calibration",
     );
   if (
-    !w.elements.some((e) => e.id === b.elementId) ||
+    (!(w.brief && b.elementId === "world") &&
+      !w.elements.some((e) => e.id === b.elementId)) ||
     !w.styles.some((s) => s.id === b.styleId)
   )
     throw new DomainError("VISUAL_TARGET_INVALID");
@@ -669,7 +674,7 @@ app.post("/api/worlds/:id/confirm", async (c) => {
   validateConfirmation(w, s.processedCount, s.segmentCount);
   await assertFrameworkReviewed(w);
   assertRecord(w.recordVersion, b.recordVersion);
-  if (b.hash !== (await frameworkHash(w)))
+  if (b.hash !== (w.brief ? await briefHash(w) : await frameworkHash(w)))
     throw new DomainError("REVISION_CONFLICT");
   w.status = "confirmed";
   await saveWorld(
@@ -834,6 +839,7 @@ app.post("/api/jobs/:id/retry", async (c) => {
   await deliverOutbox(c.env);
   return c.json({ jobId: job.id }, 202);
 });
+app.route("/api", briefRoutes);
 app.route("/api", worldRoutes);
 app.route("/api", sourceImageRoutes);
 app.route("/api", importRoutes);

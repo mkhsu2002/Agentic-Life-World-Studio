@@ -26,7 +26,6 @@ import {
   assertReviewSnapshot,
   isFrameworkApproved,
 } from "./world-review";
-import { moduleLabels } from "../shared/world-framework";
 import { WorldWorkflow } from "./world-workflow";
 import { SourceImagePicker } from "./source-image-picker";
 import { AuditList, JobList, date, statusName, type RunAction } from "./studio";
@@ -65,7 +64,7 @@ export function WorldPanels(props: Props) {
   return (
     <>
       <WorldWorkflow {...props} />
-      <div aria-label="世界審核" hidden={props.tab !== "review"}>
+      <div aria-label="世界確認" hidden={props.tab !== "review"}>
         <WorldReview
           detail={props.detail}
           run={props.run}
@@ -99,11 +98,11 @@ function Source({
           busy={busy}
         />
       )}
-      {world.status === "reading" && detail.importReview && (
+      {!world.brief && detail.importReview && (
         <section className="panel">
-          <h2>將原作整理為世界審核表</h2>
+          <h2>整理六項創作簡報</h2>
           <p className="muted">
-            你可以改用八模組框架繼續整理，將核心設定、補全與探索範圍集中核對。已完成的閱讀會保留，尚未核對的線索仍需要你的確認。
+            閱讀進度已保留。你可以選擇將原作重新整理成六項創作簡報，再親自核對與裁定。
           </p>
           <button
             className="primary"
@@ -112,7 +111,7 @@ function Source({
               jobs.some((job) => ["queued", "running"].includes(job.status))
             }
             onClick={() =>
-              void run("改用世界框架繼續整理", (latest) => {
+              void run("用六項重新整理", (latest) => {
                 assertReviewSnapshot(latest, detail);
                 return post(`${worldPath(world.id)}/analyze`, {
                   revision: world.revision,
@@ -121,7 +120,7 @@ function Source({
               })
             }
           >
-            改用世界框架繼續整理
+            用六項重新整理
             <ArrowUpRight size={16} />
           </button>
         </section>
@@ -198,52 +197,16 @@ function Source({
         <section className="panel">
           <p className="eyebrow">WORLD PORTRAIT</p>
           <h2>世界的輪廓</h2>
-          {world.framework ? (
-            <dl className="world-facts">
-              {world.framework.modules.map((module) => (
-                <div key={module.key}>
-                  <dt>
-                    {moduleLabels[module.key]} ·{" "}
-                    {
-                      {
-                        known: "已知",
-                        unknown: "未交代",
-                        not_applicable: "不適用",
-                      }[module.status]
-                    }
-                  </dt>
-                  <dd>{module.summary}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <>
-              <dl className="world-facts">
-                <div>
-                  <dt>時代</dt>
-                  <dd>{world.era || blank}</dd>
-                </div>
-                <div>
-                  <dt>地理</dt>
-                  <dd>{world.geography || blank}</dd>
-                </div>
-                <div>
-                  <dt>生態</dt>
-                  <dd>{world.ecology || blank}</dd>
-                </div>
-              </dl>
-              {world.rules.length > 0 && (
-                <>
-                  <h3 className="minor-heading">世界規則</h3>
-                  <ol className="rules">
-                    {world.rules.map((rule, i) => (
-                      <li key={i}>{rule}</li>
-                    ))}
-                  </ol>
-                </>
-              )}
-            </>
-          )}
+          <dl className="world-facts">
+            <div>
+              <dt>世界概況</dt>
+              <dd>{world.brief?.world || world.summary || blank}</dd>
+            </div>
+            <div>
+              <dt>旅程時段</dt>
+              <dd>{world.brief?.time || world.era || blank}</dd>
+            </div>
+          </dl>
         </section>
       </div>
       <section className="panel">
@@ -588,10 +551,13 @@ function Visual({ detail, run, busy, retry }: Props) {
   const { world, jobs } = detail;
   const frameworkApproved = isFrameworkApproved(detail);
   const [choice, setChoice] = useState(world.selectedStyleId || "");
-  const [elementId, setElementId] = useState(world.elements[0]?.id || "");
+  const [elementId, setElementId] = useState(
+    world.brief ? "world" : world.elements[0]?.id || "",
+  );
   const [feedback, setFeedback] = useState("");
   const styleId = choice || world.selectedStyleId || world.styles[0]?.id || "";
-  const targetElementId = elementId || world.elements[0]?.id || "";
+  const targetElementId =
+    elementId || (world.brief ? "world" : world.elements[0]?.id || "");
   return (
     <div className="tab-content">
       <div className="section-heading">
@@ -603,7 +569,7 @@ function Visual({ detail, run, busy, retry }: Props) {
       </div>
       {!frameworkApproved && (
         <p className="notice">
-          請先選定並儲存視覺方向，再到「世界審核」親自核准核心設定、補全與探索範圍，才可產生試稿。變更方向後須重新核准設定與試稿。
+          請先到「世界確認」核對並親自核准六項創作簡報，再產生視覺試稿。你也可以在此調整視覺方向。
         </p>
       )}
       {!world.styles.length ? (
@@ -688,18 +654,22 @@ function Visual({ detail, run, busy, retry }: Props) {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">FROM WORDS TO AN IMAGE</p>
-                <h2>讓風格遇見一個元素</h2>
+                <h2>讓世界的風格成形</h2>
               </div>
               <ImagePlus size={22} />
             </div>
             <div className="preview-form">
               <label>
-                觀看的元素
+                觀看的景象
                 <select
                   value={targetElementId}
                   onChange={(e) => setElementId(e.target.value)}
                 >
-                  <option value="">選擇元素</option>
+                  {world.brief ? (
+                    <option value="world">整體世界景象</option>
+                  ) : (
+                    <option value="">選擇元素</option>
+                  )}
                   {world.elements.map((el) => (
                     <option key={el.id} value={el.id}>
                       {el.sourceName} · {el.kind}
@@ -749,7 +719,7 @@ function Visual({ detail, run, busy, retry }: Props) {
               </button>
               {!frameworkApproved && (
                 <p className="field-note">
-                  尚未完成目前版本的本人設定核准。請先回「世界審核」確認並核准，試稿按鈕才會開放。
+                  尚未完成目前版本的本人設定核准。請先回「世界確認」確認並核准，試稿按鈕才會開放。
                 </p>
               )}
               {styleId !== world.selectedStyleId && (
