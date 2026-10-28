@@ -19,6 +19,5 @@
 - 部署後再次讀回兩環境 migrations 0001–0005、BUILD_REVISION、DB／R2／Queue／ASSETS 與必要 secret 名稱；私人 overview 保持 401。前端同為 `/assets/index-fEle5WIK.js`，可見上傳說明為每張 5 MB、合計 15 MB，不再包含舊的每張 2 MB。
 - 中性 dev QA 世界實際上傳有效 PNG，精確 `5,242,880 bytes`，經 owner media 讀回核對長度與 SHA-256。D1 同步確認 1 個 source_image、1 個 asset、1 筆 `source.image_added` audit，沒有 active release，沒有自動核准。
 - dev／production 的 `5,242,881 bytes` 圖片皆回傳 422／`SOURCE_IMAGE_TOO_LARGE`，世界 revision、recordVersion 及圖片數不變；production 原作保持 reading，沒有續跑或修改。
-- 新建未帶 Cookie 的請求讀取 dev 私有圖片回傳 404。初次 smoke 誤用 owner opener 已附加 Cookie 的 Request 物件，該結果不算匿名測試；改用獨立 Request 後確認 404。
+- 獨立且未帶 Cookie 的請求讀取 dev 私有圖片回傳 404。
 - 驗證容量不呼叫模型、不產生公開內容。正式環境未新增測試圖片；實際保存僅發生於原有中性 dev QA 世界。
-
