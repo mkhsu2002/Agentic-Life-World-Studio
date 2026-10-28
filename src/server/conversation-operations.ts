@@ -338,16 +338,35 @@ export async function finishConversationCycle(
   };
 }
 export async function recoverConversationOperations(env: Env) {
+  const missed = await env.DB.prepare(
+    "SELECT w.id FROM studio_automation_wakeups w JOIN studio_conversations c ON c.id=w.conversation_id WHERE w.dispatched_at IS NOT NULL AND w.due_at<? AND json_extract(c.document_json,'$.operation.enabled')=1 AND json_extract(c.document_json,'$.operation.approvalHash')=w.policy_hash AND NOT EXISTS(SELECT 1 FROM studio_operation_runs r WHERE r.conversation_id=w.conversation_id AND r.policy_hash=w.policy_hash AND r.scheduled_for=w.due_at) ORDER BY w.due_at LIMIT 20",
+  )
+    .bind(new Date(Date.now() - 15 * 60 * 1000).toISOString())
+    .all<{ id: string }>();
+  for (const wake of missed.results) await runOperationWakeup(env, wake.id);
   const orphaned = await env.DB.prepare(
     "SELECT r.id,r.conversation_id,r.policy_hash FROM studio_operation_runs r WHERE r.status='running' AND NOT EXISTS(SELECT 1 FROM studio_tasks t WHERE t.conversation_id=r.conversation_id AND json_extract(t.payload_json,'$.operationRunId')=r.id)",
   ).all<{ id: string; conversation_id: string; policy_hash: string }>();
-  for (const run of orphaned.results)
-    await enqueueOperationCycle(
-      env,
-      run.conversation_id,
-      run.id,
-      run.policy_hash,
-    );
+  for (const run of orphaned.results) {
+    const current = await getConversation(env, run.conversation_id),
+      policy = policyOf(current.document);
+    if (!policy?.enabled || policy.approvalHash !== run.policy_hash) {
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE studio_operation_runs SET status='cancelled',completed_at=? WHERE id=? AND status='running'",
+        ).bind(now(), run.id),
+        auditStatement(env, run.conversation_id, "operation.orphan_cancelled", {
+          runId: run.id,
+        }),
+      ]);
+    } else
+      await enqueueOperationCycle(
+        env,
+        run.conversation_id,
+        run.id,
+        run.policy_hash,
+      );
+  }
   const failed = await env.DB.prepare(
     "SELECT r.id,r.conversation_id FROM studio_operation_runs r WHERE r.status='running' AND EXISTS(SELECT 1 FROM studio_tasks t WHERE t.conversation_id=r.conversation_id AND json_extract(t.payload_json,'$.operationRunId')=r.id AND t.status IN ('failed','cancelled')) AND NOT EXISTS(SELECT 1 FROM studio_tasks t WHERE t.conversation_id=r.conversation_id AND json_extract(t.payload_json,'$.operationRunId')=r.id AND t.status IN ('queued','running'))",
   ).all<{ id: string; conversation_id: string }>();

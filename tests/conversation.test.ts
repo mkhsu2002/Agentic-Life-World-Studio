@@ -799,7 +799,11 @@ it("continues a website request through required world, visual and editorial wor
       else if (properties.pass)
         value = { pass: true, issues: [], reply: "通過" };
       else if (properties.elements)
-        value = { title: "Sky", summary: "A floating place.", elements: [] };
+        value = {
+          title: "Sky",
+          summary: "一座漂浮於雲層之間的島嶼。",
+          elements: [],
+        };
       else if (properties.prompt)
         value = {
           reply: "這是試稿。",
@@ -1049,13 +1053,13 @@ it("runs an independently reviewed autonomous cycle with additive world memory a
       else if (props.elements)
         value = {
           title: "Changed title should not replace old",
-          summary: "Candidate",
+          summary: "沿海雲層間的候選新發現。",
           elements: [
             {
               kind: "life",
               names: { en: "Cloud ray", "zh-Hant": "雲魟", ja: "雲エイ" },
-              definition: "A quiet glider.",
-              appearance: "Silver fins.",
+              definition: "在雲層間安靜滑翔的生命。",
+              appearance: "具有銀色的鰭。",
               features: [],
               relations: ["old"],
               origin: "extension",
@@ -1384,4 +1388,412 @@ it("accepts the exact commands emitted by inline UI shortcuts through the real t
     (await req("/conversations/" + id)).body.conversation.document.visual
       .selectedAssetId,
   ).toBe("second");
+});
+it("repairs author-facing copy from a saved cheap candidate without rereading or recalling the long-book director", async () => {
+  const id = await create(),
+    book = "長篇原稿。".repeat(18000) + "書末限制：不得揭露旅人的身世。";
+  const bad = {
+    core: "A far future world.",
+    extension: "New places and life may be created.",
+    exploration: "Observe landscapes.",
+    continuity: "Keep the story timeline.",
+    visual: "Soft watercolor.",
+    audience: "Curious adults.",
+  };
+  let costly = 0,
+    repairs = 0,
+    sourceReads = 0;
+  const get = env.STORAGE.get.bind(env.STORAGE);
+  env.STORAGE.get = async (key, ...rest) => {
+    if (String(key).includes("/sources/")) sourceReads++;
+    return get(key, ...rest);
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const request = JSON.parse(opts.body),
+        context = JSON.parse(request.messages[1].content);
+      let value;
+      if (request.response_format.json_schema.schema.properties.pass)
+        value = { pass: true, issues: [], reply: "已核對原文" };
+      else if (context.originalSources) {
+        costly++;
+        value = {
+          reply:
+            "上面 direction 的 core、extension 已完成；下一步執行 world/journey/visual。",
+          action: "direction",
+          direction: bad,
+        };
+      } else if (context.authorCopyCandidate) {
+        repairs++;
+        expect(JSON.stringify(context).length).toBeLessThan(15000);
+        expect(JSON.stringify(context)).not.toContain("長篇原稿");
+        value = {
+          reply: "我已讀完原稿，以下是建議的創作方向，請看看是否符合你的想像。",
+          direction,
+          action: "operation",
+        };
+      } else value = { pass: true, issues: [], reply: "已核對原文" };
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 20 },
+        }),
+      );
+    }),
+  );
+  const a = await turn(id, "閱讀長篇", [
+    { name: "book", kind: "text", text: book },
+  ]);
+  await processConversationTask(env, a.body.taskId);
+  expect(costly).toBe(1);
+  expect(
+    (await req("/conversations/" + id)).body.events.some((e: any) =>
+      e.content.includes("world/journey/visual"),
+    ),
+  ).toBe(false);
+  const readsAfterFirst = sourceReads;
+  await processConversationTask(env, a.body.taskId);
+  expect(costly).toBe(1);
+  expect(repairs).toBe(1);
+  expect(sourceReads).toBe(readsAfterFirst);
+  const r = sql
+    .prepare(
+      "SELECT id FROM studio_tasks WHERE role='review' AND status='queued'",
+    )
+    .get() as { id: string };
+  await processConversationTask(env, r.id);
+  const proposal = (await req("/conversations/" + id)).body.proposals[0];
+  expect(proposal.kind).toBe("direction");
+  expect(proposal.content.direction).toEqual(direction);
+  expect(sql.prepare("SELECT COUNT(*) n FROM studio_approvals").get()).toEqual({
+    n: 0,
+  });
+  expect(sourceReads).toBeGreaterThan(readsAfterFirst);
+});
+it("does not expose or permanently cache a failed author-copy repair", async () => {
+  const id = await create();
+  let original = 0,
+    repairs = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const context = JSON.parse(JSON.parse(opts.body).messages[1].content);
+      let value;
+      if (context.authorCopyCandidate) {
+        repairs++;
+        value =
+          repairs === 1
+            ? { reply: "direction/core/extension", direction }
+            : { reply: "我已整理好方向，請確認是否採用。", direction };
+      } else {
+        original++;
+        value = {
+          reply: "direction/core/extension",
+          action: "direction",
+          direction,
+        };
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  const a = await turn(id, "討論方向");
+  for (let i = 0; i < 3; i++) await processConversationTask(env, a.body.taskId);
+  expect(original).toBe(1);
+  expect(repairs).toBe(2);
+  expect(
+    (await req("/conversations/" + id)).body.events.some((e: any) =>
+      e.content.includes("direction/core/extension"),
+    ),
+  ).toBe(false);
+  expect(
+    sql
+      .prepare("SELECT COUNT(*) n FROM studio_tasks WHERE role='review'")
+      .get(),
+  ).toEqual({ n: 1 });
+});
+it("repairs world definitions in Chinese without changing names, IDs, origins or relations before independent review", async () => {
+  const id = await create();
+  const element = {
+    id: "known",
+    kind: "life",
+    names: { en: "Cloud ray", "zh-Hant": "雲魟", ja: "雲エイ" },
+    definition: "A quiet glider.",
+    appearance: "Silver fins.",
+    features: ["Follows warm air."],
+    relations: ["old-coast"],
+    origin: "extension",
+  };
+  sql.prepare("UPDATE studio_conversations SET document_json=? WHERE id=?").run(
+    JSON.stringify({
+      direction,
+      world: {
+        title: "Coast",
+        summary: "已確認的海岸。",
+        elements: [element],
+      },
+      visual: null,
+      journey: null,
+      publication: null,
+      operation: null,
+    }),
+    id,
+  );
+  let worldCalls = 0,
+    copyCalls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const request = JSON.parse(opts.body),
+        context = JSON.parse(request.messages[1].content),
+        props = request.response_format.json_schema.schema.properties;
+      let value;
+      if (context.authorCopyCandidate) {
+        copyCalls++;
+        value = {
+          summary: "雲層與沿岸生命相互依存。",
+          elements: [
+            {
+              index: 0,
+              id: "hacked",
+              names: { en: "Changed" },
+              origin: "source",
+              definition: "在雲層間滑翔的生命。",
+              appearance: "具有銀色的鰭。",
+              features: ["沿著暖空氣移動。"],
+            },
+          ],
+        };
+      } else if (props.pass) value = { pass: true, issues: [], reply: "通過" };
+      else if (props.elements) {
+        worldCalls++;
+        value = {
+          title: "Coast",
+          summary: "Life follows clouds.",
+          elements: [element],
+        };
+      } else value = { reply: "我會先整理具體的世界內容。", action: "world" };
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  await turn(id, "調整生命的描述");
+  for (let n = 0; n < 6; n++) {
+    const row = sql
+      .prepare(
+        "SELECT id FROM studio_tasks WHERE status='queued' ORDER BY rowid LIMIT 1",
+      )
+      .get() as { id: string } | undefined;
+    if (!row) break;
+    await processConversationTask(env, row.id);
+  }
+  const proposal = (await req("/conversations/" + id)).body.proposals[0];
+  expect(proposal.kind).toBe("world");
+  const updated = proposal.content.world.elements[0];
+  expect(updated.id).toBe("known");
+  expect(updated.names).toEqual(element.names);
+  expect(updated.origin).toBe("extension");
+  expect(updated.relations).toEqual(element.relations);
+  expect(updated.definition).toBe("在雲層間滑翔的生命。");
+  expect(worldCalls).toBe(1);
+  expect(copyCalls).toBe(1);
+  expect(sql.prepare("SELECT COUNT(*) n FROM studio_approvals").get()).toEqual({
+    n: 0,
+  });
+});
+it("flags the unsupported inference from missing names to a naming prohibition before showing an author proposal", async () => {
+  const { directorAuthorCopyIssues } =
+    await import("../src/server/author-copy");
+  const invalid = {
+    reply: "這是我的方向建議。",
+    action: "direction" as const,
+    direction: {
+      ...direction,
+      extension: "原著沒有命名領域，所以不得命名新的地方。",
+    },
+  };
+  expect(
+    directorAuthorCopyIssues(invalid).some((i) => i.includes("禁止命名")),
+  ).toBe(true);
+  expect(
+    directorAuthorCopyIssues({
+      ...invalid,
+      direction: {
+        ...direction,
+        extension: "原著尚未命名不代表禁止命名，可以提出命名慣例供作者核准。",
+      },
+    }),
+  ).toEqual([]);
+});
+it("rejects an English paragraph containing only a token Chinese greeting but keeps necessary proper names", async () => {
+  const { directorAuthorCopyIssues } =
+    await import("../src/server/author-copy");
+  expect(
+    directorAuthorCopyIssues({
+      action: "reply",
+      reply:
+        "好。The world contains floating islands and quiet rivers. We should explore its landscapes and create new species while keeping the original story intact.",
+    }).length,
+  ).toBeGreaterThan(0);
+  expect(
+    directorAuthorCopyIssues({
+      action: "reply",
+      reply:
+        "我建議保留《A Very Long English Story Title》的自然氛圍，並讓 AI 協助整理探索方向。",
+    }),
+  ).toEqual([]);
+});
+it("does not let copy repair change the operation scope, budget or frequency", async () => {
+  const id = await create();
+  const operation = {
+    scope: "僅觀察已確認海岸的風景。",
+    frequencyHours: 24,
+    maxCalls: 10,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const context = JSON.parse(JSON.parse(opts.body).messages[1].content);
+      const value = context.authorCopyCandidate
+        ? {
+            reply: "我已整理自主更新的範圍與用量，請確認是否啟動。",
+            operationScope: "可探索一切領域且無限制。",
+            operation: {
+              scope: "任意內容",
+              frequencyHours: 1,
+              maxCalls: 10000,
+            },
+            action: "reply",
+          }
+        : { reply: "direction/core/extension", action: "operation", operation };
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  const a = await turn(id, "每天更新，最多10次呼叫");
+  await processConversationTask(env, a.body.taskId);
+  await processConversationTask(env, a.body.taskId);
+  const proposals = (await req("/conversations/" + id)).body.proposals;
+  expect(proposals).toHaveLength(1);
+  expect(proposals[0].kind).toBe("operation");
+  expect(proposals[0].content.operation).toEqual(operation);
+  expect(sql.prepare("SELECT COUNT(*) n FROM studio_approvals").get()).toEqual({
+    n: 0,
+  });
+});
+it("resumes exhausted author-copy repair on a new task without re-reading or re-running the long-book director", async () => {
+  const id = await create();
+  let originals = 0,
+    repairs = 0,
+    sourceReads = 0,
+    good = false;
+  const get = env.STORAGE.get.bind(env.STORAGE);
+  env.STORAGE.get = async (key, ...rest) => {
+    if (String(key).includes("/sources/")) sourceReads++;
+    return get(key, ...rest);
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const request = JSON.parse(opts.body),
+        context = JSON.parse(request.messages[1].content);
+      let value;
+      if (request.response_format.json_schema.schema.properties.pass)
+        value = { pass: true, issues: [], reply: "已核對原文。" };
+      else if (context.authorCopyCandidate) {
+        repairs++;
+        expect(JSON.stringify(context).length).toBeLessThan(15000);
+        value = {
+          reply: good
+            ? "我已整理好創作方向，請確認是否採用。"
+            : "direction/core/extension",
+          direction,
+        };
+      } else {
+        originals++;
+        value = {
+          action: "direction",
+          reply: "direction/core/extension",
+          direction,
+        };
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  const a = await turn(id, "請閱讀", [
+    { name: "book", kind: "text", text: "中立長篇原稿。".repeat(15000) },
+  ]);
+  await processConversationTask(env, a.body.taskId);
+  for (let n = 0; n < 3; n++) await processConversationTask(env, a.body.taskId);
+  expect(
+    sql
+      .prepare("SELECT status FROM studio_tasks WHERE id=?")
+      .get(a.body.taskId),
+  ).toEqual({ status: "failed" });
+  expect(repairs).toBe(3);
+  const reads = sourceReads;
+  good = true;
+  const retry = await turn(id, "重試上一項工作");
+  await processConversationTask(env, retry.body.taskId);
+  const child = sql
+    .prepare(
+      "SELECT id,payload_json FROM studio_tasks WHERE status='queued' ORDER BY rowid LIMIT 1",
+    )
+    .get() as { id: string; payload_json: string };
+  expect(JSON.parse(child.payload_json).authorCopy.key).toContain(
+    `/author-copy/${child.id}/`,
+  );
+  await processConversationTask(env, child.id);
+  expect(sourceReads).toBe(reads);
+  expect(originals).toBe(1);
+  expect(repairs).toBe(4);
+  const review = sql
+    .prepare(
+      "SELECT id FROM studio_tasks WHERE role='review' AND status='queued'",
+    )
+    .get() as { id: string };
+  await processConversationTask(env, review.id);
+  expect(
+    (await req("/conversations/" + id)).body.proposals[0].content.direction,
+  ).toEqual(direction);
+  expect(originals).toBe(1);
 });

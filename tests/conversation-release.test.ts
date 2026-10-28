@@ -737,3 +737,34 @@ it("records CI failure without replacing the prior public release and frees the 
       .get(),
   ).toEqual({ n: 0 });
 });
+it("recovers a due dispatched timer that never reached the Queue without polling or duplicating a cycle", async () => {
+  const { recoverConversationOperations } =
+    await import("../src/server/conversation-operations");
+  await publish();
+  const ctx = await operationContext();
+  await activateConversationOperation(f.env, ctx);
+  f.sql
+    .prepare(
+      "UPDATE studio_tasks SET status='completed' WHERE id='activation-task'",
+    )
+    .run();
+  f.sql
+    .prepare(
+      "UPDATE studio_automation_wakeups SET due_at='2020-01-01T00:00:00.000Z'",
+    )
+    .run();
+  await recoverConversationOperations(f.env);
+  await recoverConversationOperations(f.env);
+  expect(
+    f.sql
+      .prepare(
+        "SELECT COUNT(*) n FROM studio_operation_runs WHERE status='running'",
+      )
+      .get(),
+  ).toEqual({ n: 1 });
+  expect(
+    f.sql
+      .prepare("SELECT COUNT(*) n FROM studio_tasks WHERE role='world'")
+      .get(),
+  ).toEqual({ n: 1 });
+});

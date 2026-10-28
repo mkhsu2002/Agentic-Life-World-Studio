@@ -25,7 +25,7 @@ python3 scripts/configure-github-app.py
 
 Meta 工具隱藏輸入，存入 macOS Keychain 並以 stdin 套用 Worker secret；不接受聊天回覆、repo `.env` 或命令列明文存放 key。密碼工具只複製至剪貼簿。
 
-GitHub App 工具啟動本機回呼頁面，由作者親自確認建立私人 App，安裝只選 `mkhsu2002/Agentic-Life-World-Studio`。App 需要 Contents／Pull requests／Actions write、Checks read：Actions write 僅用於明確重試已失敗的正式部署。工具驗證單一 repository 後才把 PKCS8 private key 存入 Keychain 及 dev／production。個人 gh token 不注入 Worker。
+GitHub App 工具啟動本機回呼頁面，由作者親自確認建立私人 App，安裝只選 `mkhsu2002/Agentic-Life-World-Studio`。App 需要 Contents／Pull requests／Actions write、Checks read：Actions write 僅用於明確重試已失敗的正式部署。工具驗證單一 repository 後才把 PKCS8 private key 存入 Keychain 及 dev／production。個人 gh token 不注入 Worker。Manifest 的 webhook 使用公開 HTTPS 網址且保持停用；本機回呼只接收作者建立及安裝的結果。
 
 必要 Worker secrets：`MODEL_API_KEY`、`SESSION_SECRET`、`STUDIO_PASSWORD`、`STUDIO_DEPLOY_TOKEN`。獨立網站 GitHub 流程另需 `GITHUB_APP_ID`、`GITHUB_APP_PRIVATE_KEY`、`GITHUB_INSTALLATION_ID`。只查名稱，不輸出值。
 
@@ -42,7 +42,7 @@ GitHub Actions 只持有 `CLOUDFLARE_API_TOKEN` 與 `STUDIO_DEPLOY_TOKEN`；沒�
 
 Bindings：`ASSETS`、`DB`、`STORAGE`、`JOBS`、`OPERATIONS`。每次發布核對 `BUILD_REVISION`、產品版號及 `utsp-studio/0.07`，兩環境實際套用 migrations 0001–0007。0006 新增對話、來源、任務、核准、記憶及用量；0007 新增網站、發布、自主政策輪次、排程及旅程紀錄，不刪舊資料。
 
-Studio 新 API 在 `/api/studio/`，舊 `/api/worlds/` 留作歷史資料相容。turn 的原子冪等由 `studio_turns.client_message_id` 處理，不經舊版 `operation_keys` pending cache。SSE 事件可重播，snapshot 是一致的最新一千則，`events?before=` 取得更早訊息。
+Studio 新 API 在 `/api/studio/`，舊 `/api/worlds/` 留作歷史資料相容。turn 的原子冪等由 `studio_turns.client_message_id` 處理，不經舊版 `operation_keys` pending cache。SSE 事件可重播，snapshot 是一致的最新一千則，`events?before=` 取得更早訊息。總監若回傳英文說明或內部欄位詞，先保存候選再修訂供作者閱讀的繁中文案，不重讀長原稿；修訂不能改 action、識別、設定權限或營運政策，人工重試沿用已保存候選。
 
 ## GitHub → Cloudflare
 
@@ -58,9 +58,9 @@ CI 失敗回報在同一對話顯示，保留前一個 active。重試只重跑�
 
 ## 排程與成本
 
-自主更新使用 Workflows 的指定時間 sleep → Queue，完成一輪才安排下一輪。未啟用世界不產生探索喚醒。用量預留涵蓋每次供應商請求，包含無法確認結果但可能計費的請求；有效收據重用不再扣新呼叫。
+自主更新使用 Workflows 的持久化延遲 → Queue，完成一輪才安排下一輪。延遲在 durable step 中保存，重播沿用相同步驟；已到期直接派送，不向平台要求睡眠至過去。未啟用世界不產生探索喚醒。用量預留涵蓋每次供應商請求，包含無法確認結果但可能計費的請求；有效收據重用不再扣新呼叫。
 
-既有每日一次 recovery cron 保留，兩環境約每月 60 次輕量觸發；無工作快速退出，補送 outbox／未派送喚醒與中斷的輪次，不執行完整 build、不作分鐘輪詢、不自行啟動作者未授權政策。每個啟用世界另有約 `30 × 24 / frequencyHours` 次有工作喚醒／月，失敗重試最多兩次。
+既有每日一次 recovery cron 保留，兩環境約每月 60 次輕量觸發；無工作快速退出，補送 outbox／未派送或已到期但未建立輪次的喚醒，以及中斷的輪次，不執行完整 build、不作分鐘輪詢、不自行啟動作者未授權政策。每個啟用世界另有約 `30 × 24 / frequencyHours` 次有工作喚醒／月，失敗重試最多兩次。
 
 v0.07 以作者指定的模型呼叫次數作硬上限。沒有即時金額定價換算，不把呼叫次數誤稱金額；達上限暫停，不自動提高預算。郵件、訂閱、明信片及美術集尚未建立寄送排程。
 

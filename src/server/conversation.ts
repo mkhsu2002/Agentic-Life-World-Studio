@@ -1,3 +1,11 @@
+import {
+  directorAuthorCopyIssues,
+  worldAuthorCopyIssues,
+  repairDirectorAuthorCopy,
+  repairWorldAuthorCopy,
+  type DirectorCandidate,
+  type WorldAuthorCandidate,
+} from "./author-copy";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -412,6 +420,33 @@ async function child(env: Env, t: TaskRow, role: StudioRole, payload: Payload) {
   }
   const c = await conversationRow(env, t.conversation_id),
     id = newId("ctask");
+  if (payload.authorCopy) {
+    const copy = payload.authorCopy as { role: string; key: string };
+    const prefix = `studio/${t.conversation_id}/author-copy/`;
+    const sourceId =
+      typeof copy.key === "string" && copy.key.startsWith(prefix)
+        ? copy.key.slice(prefix.length).split("/")[0]
+        : "";
+    const source = sourceId
+      ? await env.DB.prepare(
+          "SELECT id FROM studio_tasks WHERE id=? AND conversation_id=? AND role=? AND status='failed'",
+        )
+          .bind(sourceId, t.conversation_id, role)
+          .first<{ id: string }>()
+      : null;
+    if (
+      !source ||
+      !["director", "world"].includes(copy.role) ||
+      copy.role !== role ||
+      copy.key !== `${prefix}${sourceId}/${copy.role}.json`
+    )
+      throw new DomainError("AUTHOR_COPY_STATE_INVALID");
+    const object = await env.STORAGE.get(copy.key);
+    if (!object) throw new DomainError("AUTHOR_COPY_MISSING");
+    const key = `${prefix}${id}/${copy.role}.json`;
+    await env.STORAGE.put(key, await object.text());
+    payload.authorCopy = { role: copy.role, key };
+  }
   await finish(env, t, taskStatements(env, id, c, t.turn_id, role, payload));
   return id;
 }
@@ -1016,6 +1051,20 @@ async function director(env: Env, t: TaskRow, p: Payload) {
     },
   );
   if (!(await activeTask(env, t))) return;
+  if (directorAuthorCopyIssues(result).length) {
+    await stageAuthorCopy(env, t, p, "director", result);
+    return;
+  }
+  await dispatchDirectorResult(env, t, p, result);
+}
+async function dispatchDirectorResult(
+  env: Env,
+  t: TaskRow,
+  p: Payload,
+  result: DirectorCandidate,
+) {
+  const c = await getConversation(env, t.conversation_id),
+    owner = await ownerInput(env, t);
   if (result.action === "reply") {
     await finish(env, t, [
       eventStatement(env, c.id, "assistant", result.reply),
@@ -1370,34 +1419,12 @@ async function roleTask(env: Env, t: TaskRow, p: Payload) {
     ),
   };
   if (t.role === "world") {
-    const raw = await modelResult(env, t, "world", context, schemas.world),
-      known = new Set(effectiveWorld?.elements.map((e) => e.id) || []);
-    let world: WorldCandidate = {
-      ...raw,
-      elements: raw.elements.map((e) => ({
-        ...e,
-        id: e.id && known.has(e.id) ? e.id : newId("element"),
-      })),
-    };
-    if (p.operationRunId && effectiveWorld)
-      world = {
-        ...effectiveWorld,
-        elements: [
-          ...effectiveWorld.elements,
-          ...world.elements.filter((e) => !known.has(e.id)).slice(0, 6),
-        ],
-      };
-    await child(env, t, "review", {
-      kind: "world",
-      candidateRole: "world",
-      candidate: {
-        world,
-        ...(p.resume ? { resume: p.resume } : {}),
-        reply:
-          "這是初始世界的代表內容。它們尚未啟用；你可以要求修改，或明確表示採用這份世界內容。",
-      },
-      repairCount: Number(p.repairCount || 0),
-    });
+    const raw = await modelResult(env, t, "world", context, schemas.world);
+    if (worldAuthorCopyIssues(raw).length) {
+      await stageAuthorCopy(env, t, p, "world", raw);
+      return;
+    }
+    await finishWorldCandidate(env, t, p, raw);
     return;
   }
   if (t.role === "journey") {
@@ -1654,7 +1681,8 @@ export async function processConversationTask(env: Env, taskId: string) {
   try {
     await assertOperationPolicy(env, task);
     const payload = JSON.parse(task.payload_json) as Payload;
-    if (task.role === "director") await director(env, task, payload);
+    if (payload.authorCopy) await authorCopyTask(env, task, payload);
+    else if (task.role === "director") await director(env, task, payload);
     else if (task.role === "review") await reviewed(env, task, payload);
     else if (task.role === "image") await imageTask(env, task, payload);
     else if (["site", "publish", "operation"].includes(task.role))
@@ -2000,4 +2028,91 @@ async function visualReferenceData(env: Env, cid: string) {
       : [],
     references = await referenceData(env, cid);
   return [...new Set([...base, ...references])].slice(0, 6);
+}
+
+async function finishWorldCandidate(
+  env: Env,
+  t: TaskRow,
+  p: Payload,
+  raw: WorldAuthorCandidate,
+) {
+  const c = await getConversation(env, t.conversation_id),
+    draft = c.document.operationDraft as Record<string, unknown> | undefined,
+    effectiveWorld =
+      p.operationRunId && draft?.runId === p.operationRunId
+        ? (draft.world as WorldCandidate | undefined) || c.document.world
+        : c.document.world,
+    known = new Set(effectiveWorld?.elements.map((e) => e.id) || []);
+  let world: WorldCandidate = {
+    ...raw,
+    elements: raw.elements.map((e) => ({
+      ...e,
+      id: e.id && known.has(e.id) ? e.id : newId("element"),
+    })),
+  };
+  if (p.operationRunId && effectiveWorld)
+    world = {
+      ...effectiveWorld,
+      elements: [
+        ...effectiveWorld.elements,
+        ...world.elements.filter((e) => !known.has(e.id)).slice(0, 6),
+      ],
+    };
+  await child(env, t, "review", {
+    kind: "world",
+    candidateRole: "world",
+    candidate: {
+      world,
+      ...(p.resume ? { resume: p.resume } : {}),
+      reply:
+        "這是初始世界的代表內容。它們尚未啟用；你可以要求修改，或明確表示採用這份世界內容。",
+    },
+    repairCount: Number(p.repairCount || 0),
+  });
+}
+
+async function stageAuthorCopy(
+  env: Env,
+  t: TaskRow,
+  p: Payload,
+  role: "director" | "world",
+  candidate: DirectorCandidate | WorldAuthorCandidate,
+) {
+  const key = `studio/${t.conversation_id}/author-copy/${t.id}/${role}.json`;
+  await env.STORAGE.put(key, JSON.stringify(candidate));
+  await requeue(
+    env,
+    t,
+    { ...p, authorCopy: { role, key } },
+    "已完成內容理解，正在整理清楚的創作提案。",
+  );
+}
+async function authorCopyTask(env: Env, t: TaskRow, p: Payload) {
+  const copy = p.authorCopy as { role: "director" | "world"; key: string };
+  if (
+    !copy ||
+    !["director", "world"].includes(copy.role) ||
+    !copy.key.startsWith(`studio/${t.conversation_id}/author-copy/${t.id}/`)
+  )
+    throw new DomainError("AUTHOR_COPY_STATE_INVALID");
+  const object = await env.STORAGE.get(copy.key);
+  if (!object) throw new DomainError("AUTHOR_COPY_MISSING");
+  const candidate = JSON.parse(await object.text());
+  if (copy.role === "director") {
+    const repaired = await repairDirectorAuthorCopy(
+      env,
+      t,
+      schemas.director.parse(candidate),
+    );
+    if (!(await activeTask(env, t))) return;
+    await dispatchDirectorResult(env, t, p, repaired);
+  } else {
+    const repaired = await repairWorldAuthorCopy(
+      env,
+      t,
+      schemas.world.parse(candidate),
+    );
+    if (!(await activeTask(env, t))) return;
+    await finishWorldCandidate(env, t, p, repaired);
+  }
 }
