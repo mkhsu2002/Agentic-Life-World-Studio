@@ -1712,3 +1712,44 @@ it("requires a displayed record version for final activation and rejects an outd
   expect(stale.status).toBe(409);
   expect((await getWorld(env, "w")).status).toBe("draft");
 });
+
+it("returns the freshly compiled world if a job completes during the detail read", async () => {
+  const w = await getWorld(env, "w");
+  w.status = "reading";
+  await saveWorld(env, w, 1, "seed", "seed");
+  const prepare = env.DB.prepare.bind(env.DB);
+  let finished = false;
+  env.DB.prepare = ((sql: string) => {
+    const stmt = prepare(sql);
+    if (sql.startsWith("SELECT * FROM jobs WHERE world_id")) {
+      const all = stmt.all.bind(stmt);
+      stmt.all = (async () => {
+        if (!finished) {
+          finished = true;
+          const current = await getWorld(env, "w");
+          current.status = "draft";
+          await saveWorld(
+            env,
+            current,
+            1,
+            "world.compiled",
+            "completed while reading",
+          );
+        }
+        return all();
+      }) as typeof stmt.all;
+    }
+    return stmt;
+  }) as typeof env.DB.prepare;
+  const response = await app.request(
+    "/api/worlds/w",
+    { headers: { Cookie: await cookie() } },
+    env,
+  );
+  expect(response.status).toBe(200);
+  const detail = (await response.json()) as { world: WorldDraft };
+  expect(detail.world.status).toBe("draft");
+  expect(detail.world.recordVersion).toBe(
+    (await getWorld(env, "w")).recordVersion,
+  );
+});

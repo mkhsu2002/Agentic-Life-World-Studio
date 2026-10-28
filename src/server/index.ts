@@ -215,13 +215,15 @@ app.post("/api/logout", (c) => {
   return c.json({ authenticated: false });
 });
 app.get("/api/overview", async (c) => {
+  const currentJobs = await jobs(c.env),
+    currentAudit = await audit(c.env);
   const { results } = await c.env.DB.prepare(
     "SELECT document_json FROM worlds ORDER BY updated_at DESC LIMIT 40",
   ).all<{ document_json: string }>();
   return c.json({
     worlds: results.map((r) => JSON.parse(r.document_json)),
-    jobs: await jobs(c.env),
-    audit: await audit(c.env),
+    jobs: currentJobs,
+    audit: currentAudit,
     version: PRODUCT_VERSION,
     capabilities: {
       meta: Boolean(c.env.MODEL_API_KEY),
@@ -374,17 +376,34 @@ app.post("/api/sources", async (c) => {
   return c.json({ worldId, jobId }, 202);
 });
 app.get("/api/worlds/:id", async (c) => {
-  const w = await getWorld(c.env, c.req.param("id"));
+  const initial = await getWorld(c.env, c.req.param("id"));
+  const importReview = await openImportReview(c.env, initial.id);
+  const suggestions = await importSuggestions(
+    c.env,
+    initial.sourceId,
+    initial.id,
+  );
+  const currentJobs = await jobs(c.env, initial.id);
+  const currentAudit = await audit(c.env, initial.id);
+  const currentMessages = await messages(c.env, initial.id);
+  const currentReleases = await releases(
+    c.env,
+    initial.id,
+    new URL(c.req.url).origin,
+  );
+  // Read content after job metadata so a completed job cannot leave the UI polling an older world forever.
+  const w = await getWorld(c.env, initial.id);
+  const source = await sourceInfo(c.env, w.sourceId);
   return c.json({
     world: w,
     frameworkHash: w.framework ? await frameworkHash(w) : null,
-    importReview: await openImportReview(c.env, w.id),
-    importSuggestions: await importSuggestions(c.env, w.sourceId, w.id),
-    source: await sourceInfo(c.env, w.sourceId),
-    jobs: await jobs(c.env, w.id),
-    audit: await audit(c.env, w.id),
-    messages: await messages(c.env, w.id),
-    releases: await releases(c.env, w.id, new URL(c.req.url).origin),
+    importReview,
+    importSuggestions: suggestions,
+    source,
+    jobs: currentJobs,
+    audit: currentAudit,
+    messages: currentMessages,
+    releases: currentReleases,
   });
 });
 app.get("/api/worlds/:id/source", async (c) => {
