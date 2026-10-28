@@ -62,10 +62,12 @@ function fail(
 }
 export function validateSiteCode(code: SiteCode): SiteCode {
   if (code.html.length > 120000 || code.css.length > 80000) fail();
+  const css = code.css.replace(/\/\*[\s\S]*?\*\//g, "");
   if (
-    /@import|url\s*\(|expression\s*\(|behavior\s*:|-moz-binding|\bcontent\s*:|[<>\\\x22\x27\x80-\uFFFF]/i.test(
-      code.css,
-    )
+    /@import|url\s*\(|expression\s*\(|-moz-binding|[<\\\x22\x27\x80-\uFFFF]/i.test(
+      css,
+    ) ||
+    /(?:^|[;{])\s*(?:content|behavior)\s*:/i.test(css)
   )
     fail();
   const root = parseFragment(code.html);
@@ -163,7 +165,7 @@ export function validateSiteCode(code: SiteCode): SiteCode {
   if (!title || !content) fail("網站設計需要完整呈現世界標題及內容。");
   return {
     html: serialize(root),
-    css: code.css.replace(/\/\*[\s\S]*?\*\//g, ""),
+    css,
   };
 }
 const escape = (s: string) =>

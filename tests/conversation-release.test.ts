@@ -588,9 +588,30 @@ it("retains images and journey history across three completed autonomous publica
       translations: {
         locales: ["en", "zh-Hant", "ja"].map((locale) => ({
           locale,
-          title: editorial.title,
-          summary: editorial.summary,
-          entries: editorial.entries,
+          title:
+            locale === "en"
+              ? editorial.title
+              : locale === "ja"
+                ? "海岸を歩く"
+                : "沿岸漫步",
+          summary:
+            locale === "en"
+              ? editorial.summary
+              : locale === "ja"
+                ? "海岸で新しい景色を見る。"
+                : "沿岸的新發現。",
+          entries:
+            locale === "en"
+              ? editorial.entries
+              : editorial.entries.map((entry) => ({
+                  ...entry,
+                  title: locale === "ja" ? "新しい朝" : "新的早晨",
+                  body:
+                    locale === "ja"
+                      ? "雲を見ながら海岸を歩く。"
+                      : "沿著海岸看見雲影。",
+                  caption: locale === "ja" ? "静かな海岸。" : "安靜的海岸。",
+                })),
           terms: [],
         })),
       },

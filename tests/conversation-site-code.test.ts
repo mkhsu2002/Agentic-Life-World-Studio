@@ -84,3 +84,15 @@ it("localizes navigation and accessibility text across Chinese and Japanese", ()
   expect(ja).toContain('aria-label="メニュー"');
   expect(ja).toContain(">日誌</a>");
 });
+it("allows layout alignment and scroll properties while rejecting generated content and legacy behavior declarations", () => {
+  const safe =
+    "main{display:flex;justify-content:space-between;align-content:center;scroll-behavior:smooth}main > section{min-width:0}";
+  expect(validateSiteCode({ ...code, css: safe }).css).toBe(safe);
+  for (const css of [
+    "main{content:attr(id)}",
+    "main{behavior:custom}",
+    "main{/* separator */content:attr(id)}",
+  ]) {
+    expect(() => validateSiteCode({ ...code, css })).toThrow();
+  }
+});

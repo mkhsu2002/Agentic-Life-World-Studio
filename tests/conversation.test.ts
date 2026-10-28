@@ -1097,19 +1097,49 @@ it("runs an independently reviewed autonomous cycle with additive world memory a
         value = {
           locales: ["en", "zh-Hant", "ja"].map((locale) => ({
             locale,
-            title: "Journey",
-            summary: "A glider passes.",
+            title:
+              locale === "en"
+                ? "Journey"
+                : locale === "ja"
+                  ? "海岸の旅"
+                  : "沿岸見聞",
+            summary:
+              locale === "en"
+                ? "A glider passes."
+                : locale === "ja"
+                  ? "滑空する生き物が海岸を通ります。"
+                  : "滑翔的生命經過海岸。",
             entries: [
               {
-                title: "Coast",
-                body: "A glider passes the coast.",
-                caption: "A ray glides.",
+                title:
+                  locale === "en"
+                    ? "Coast"
+                    : locale === "ja"
+                      ? "海岸の朝"
+                      : "海岸",
+                body:
+                  locale === "en"
+                    ? "A glider passes the coast."
+                    : locale === "ja"
+                      ? "銀色の生き物が海岸をゆっくり通ります。"
+                      : "銀色的生命緩緩掠過海岸。",
+                caption:
+                  locale === "en"
+                    ? "A ray glides."
+                    : locale === "ja"
+                      ? "雲エイが滑空します。"
+                      : "雲魟在滑翔。",
               },
             ],
             terms: elements.map((e: any) => ({
               id: e.id,
               name: e.names[locale],
-              definition: "A place or life.",
+              definition:
+                locale === "en"
+                  ? "A place or life."
+                  : locale === "ja"
+                    ? "海岸に見られる場所や生き物です。"
+                    : "沿岸的一處地點或生命。",
             })),
           })),
         };
@@ -1983,3 +2013,323 @@ it.each(["site", "operation"])(
     ).toEqual({ n: 0 });
   },
 );
+it("repairs stored private editorial copy before resuming site creation without rebuilding world or images", async () => {
+  const id = await create();
+  const bad = {
+    title: "私稿預覽",
+    summary: "原文明示的內容與延伸提案，等待作者確認。",
+    entries: [
+      {
+        title: "待作者核准",
+        body: "這是延伸補全提案，尚未核准。",
+        caption: "私人預覽草稿",
+        elementIds: [],
+      },
+    ],
+  };
+  const good = {
+    title: "A Morning by the Coast",
+    summary: "Warm currents carry quiet life along the shore.",
+    entries: [
+      {
+        title: "The Shore",
+        body: "Clouds pass above the silver coast.",
+        caption: "Light settles over the water.",
+        elementIds: [],
+      },
+    ],
+  };
+  sql.prepare("UPDATE studio_conversations SET document_json=? WHERE id=?").run(
+    JSON.stringify({
+      direction,
+      world: { title: "Coast", summary: "海岸", elements: [] },
+      visual: { selectedAssetId: "base", assetIds: [] },
+      journey: { title: "沿岸觀察" },
+      editorial: bad,
+      editorialHash: "old",
+      translations: null,
+      operation: null,
+    }),
+    id,
+  );
+  let editorialCalls = 0,
+    siteCalls = 0,
+    sourceReads = 0,
+    sourceReadsAtDirector = 0;
+  const get = env.STORAGE.get.bind(env.STORAGE);
+  env.STORAGE.get = async (key, ...rest) => {
+    if (String(key).includes("/sources/")) sourceReads++;
+    return get(key, ...rest);
+  };
+  registerConversationHooks({
+    site: async (_env, input) => {
+      siteCalls++;
+      expect(input.document.editorial).toEqual(good);
+      return { content: "網站預覽已完成", eventType: "preview" };
+    },
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const request = JSON.parse(opts.body),
+        context = JSON.parse(request.messages[1].content),
+        props = request.response_format.json_schema.schema.properties;
+      let value;
+      if (props.action) {
+        sourceReadsAtDirector = sourceReads;
+        value = { reply: "我會準備網站預覽。", action: "site" };
+      } else if (props.pass) value = { pass: true, issues: [], reply: "通過" };
+      else {
+        editorialCalls++;
+        expect(sourceReads).toBe(sourceReadsAtDirector);
+        expect(context.publicCopyCandidate).toEqual(bad);
+        expect(context.publicCopyIssues.length).toBeGreaterThan(0);
+        value = good;
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  await turn(id, "請建立網站", [
+    {
+      name: "story",
+      kind: "text",
+      text: "沿岸的旅人觀察暖流與生命。".repeat(10000),
+    },
+  ]);
+  for (let n = 0; n < 8; n++) {
+    const task = sql
+      .prepare(
+        "SELECT id FROM studio_tasks WHERE status='queued' ORDER BY rowid LIMIT 1",
+      )
+      .get() as { id: string } | undefined;
+    if (!task) break;
+    await processConversationTask(env, task.id);
+  }
+  expect(editorialCalls).toBe(1);
+  expect(siteCalls).toBe(1);
+  expect(sourceReadsAtDirector).toBeGreaterThan(0);
+  expect(sourceReads).toBeGreaterThan(sourceReadsAtDirector);
+  expect(
+    (await req("/conversations/" + id)).body.conversation.document.visual
+      .selectedAssetId,
+  ).toBe("base");
+});
+it("does not save unsafe editorial copy even if generic review would pass and bounds same-role repairs to two", async () => {
+  const id = await create();
+  sql.prepare("UPDATE studio_conversations SET document_json=? WHERE id=?").run(
+    JSON.stringify({
+      direction,
+      world: { title: "Coast", summary: "海岸", elements: [] },
+      visual: { selectedAssetId: "base", assetIds: [] },
+      journey: { title: "沿岸觀察" },
+      editorial: null,
+      operation: null,
+    }),
+    id,
+  );
+  let editorialCalls = 0,
+    reviews = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const props = JSON.parse(opts.body).response_format.json_schema.schema
+        .properties;
+      let value;
+      if (props.action)
+        value = { reply: "我會撰寫公開見聞。", action: "editorial" };
+      else if (props.pass) {
+        reviews++;
+        value = { pass: true, issues: [], reply: "通過" };
+      } else {
+        editorialCalls++;
+        value = {
+          title: "A Private Preview",
+          summary:
+            "What original pages state plainly. Added imaginative proposals await author approval.",
+          entries: [],
+        };
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  await turn(id, "撰寫見聞");
+  for (let n = 0; n < 12; n++) {
+    const task = sql
+      .prepare(
+        "SELECT id FROM studio_tasks WHERE status='queued' ORDER BY rowid LIMIT 1",
+      )
+      .get() as { id: string } | undefined;
+    if (!task) break;
+    await processConversationTask(env, task.id);
+  }
+  expect(editorialCalls).toBe(3);
+  expect(reviews).toBe(0);
+  expect(
+    (await req("/conversations/" + id)).body.conversation.document.editorial,
+  ).toBeNull();
+});
+it("repairs private translation term definitions through the same role before review and memory commit", async () => {
+  const id = await create();
+  const editorial = {
+    title: "The Coast",
+    summary: "A quiet morning.",
+    entries: [
+      {
+        title: "Morning",
+        body: "Light falls over the coast.",
+        caption: "A silver coast.",
+        elementIds: ["coast"],
+      },
+    ],
+  };
+  const element = {
+    id: "coast",
+    kind: "place",
+    names: { en: "Coast", "zh-Hant": "海岸", ja: "海岸" },
+    definition: "核准海岸",
+    appearance: "銀色",
+    features: [],
+    relations: [],
+    origin: "author",
+  };
+  sql.prepare("UPDATE studio_conversations SET document_json=? WHERE id=?").run(
+    JSON.stringify({
+      direction,
+      world: { title: "Coast", summary: "海岸", elements: [element] },
+      visual: { selectedAssetId: "base", assetIds: [] },
+      journey: { title: "觀察海岸" },
+      editorial,
+      editorialHash: "approved-copy",
+      translations: null,
+      operation: null,
+    }),
+    id,
+  );
+  const good = {
+    locales: [
+      {
+        locale: "en",
+        title: "The Coast",
+        summary: "A quiet morning by the water.",
+        entries: [
+          {
+            title: "Morning",
+            body: "Light falls over the coast.",
+            caption: "A silver coast.",
+          },
+        ],
+        terms: [
+          {
+            id: "coast",
+            name: "Coast",
+            definition: "A silver shoreline beside warm currents.",
+          },
+        ],
+      },
+      {
+        locale: "zh-Hant",
+        title: "海岸見聞",
+        summary: "暖流流經銀色海岸，晨光灑落水面。",
+        entries: [
+          {
+            title: "海岸晨光",
+            body: "晨光灑落海岸，暖流經過岸邊。",
+            caption: "銀色的海岸。",
+          },
+        ],
+        terms: [
+          { id: "coast", name: "海岸", definition: "暖流旁的一片銀色海岸。" },
+        ],
+      },
+      {
+        locale: "ja",
+        title: "海岸の朝",
+        summary: "暖かい海流が銀色の海岸に沿って流れます。",
+        entries: [
+          {
+            title: "海岸の朝",
+            body: "朝の光が海岸に降り注ぎます。",
+            caption: "銀色の海岸です。",
+          },
+        ],
+        terms: [
+          {
+            id: "coast",
+            name: "海岸",
+            definition: "暖かい海流のそばに広がる銀色の海岸です。",
+          },
+        ],
+      },
+    ],
+  };
+  const bad = structuredClone(good);
+  bad.locales[0].terms[0].definition =
+    "An added imaginative proposal awaiting author approval.";
+  let calls = 0,
+    reviews = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const request = JSON.parse(opts.body),
+        context = JSON.parse(request.messages[1].content),
+        props = request.response_format.json_schema.schema.properties;
+      let value;
+      if (props.action)
+        value = {
+          reply: "我會整理三種語言的公開內容。",
+          action: "translation",
+        };
+      else if (props.pass) {
+        reviews++;
+        expect(context.candidateRole).toBe("translation");
+        value = { pass: true, issues: [], reply: "通過" };
+      } else {
+        calls++;
+        value = context.publicCopyCandidate ? good : bad;
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  await turn(id, "完成中英日內容");
+  for (let n = 0; n < 8; n++) {
+    const task = sql
+      .prepare(
+        "SELECT id FROM studio_tasks WHERE status='queued' ORDER BY rowid LIMIT 1",
+      )
+      .get() as { id: string } | undefined;
+    if (!task) break;
+    await processConversationTask(env, task.id);
+  }
+  const doc = (await req("/conversations/" + id)).body.conversation.document;
+  expect(calls).toBe(2);
+  expect(reviews).toBe(1);
+  expect(doc.translations).toEqual(good);
+  expect(doc.translationsSourceHash).toBe("approved-copy");
+});

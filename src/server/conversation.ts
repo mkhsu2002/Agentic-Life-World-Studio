@@ -1,3 +1,4 @@
+import { publicEditorialIssues, publicTranslationIssues } from "./public-copy";
 import {
   directorAuthorCopyIssues,
   worldAuthorCopyIssues,
@@ -728,6 +729,7 @@ async function reviewContext(env: Env, t: TaskRow, p: Payload) {
   return {
     candidate: p.candidate,
     kind: p.kind,
+    candidateRole: p.candidateRole,
     document: (await getConversation(env, t.conversation_id)).document,
     originalSources: original,
     readingConstraints,
@@ -857,6 +859,9 @@ async function director(env: Env, t: TaskRow, p: Payload) {
     if (old) {
       await child(env, t, old.role, {
         ...JSON.parse(old.payload_json),
+        publicCopyRepairCount: JSON.parse(old.payload_json).publicCopyCandidate
+          ? 1
+          : 0,
         request: "繼續上次未完成的工作",
       });
       return;
@@ -1177,6 +1182,11 @@ async function reviewed(env: Env, t: TaskRow, p: Payload) {
   await assertOperationPolicy(env, t);
   if (!p.candidate || !p.candidateRole)
     throw new DomainError("REVIEW_INPUT_MISSING");
+  if (
+    (p.candidateRole === "editorial" || p.candidateRole === "translation") &&
+    (await repairPublicCandidate(env, t, p, p.candidateRole, p.candidate))
+  )
+    return;
   const context = await reviewContext(env, t, p),
     result = await modelResult(
       env,
@@ -1196,6 +1206,7 @@ async function reviewed(env: Env, t: TaskRow, p: Payload) {
         candidate: p.candidate,
         issues: result.issues,
         repairCount: (p.repairCount || 0) + 1,
+        publicCopyRepairCount: p.publicCopyRepairCount,
         resume: p.resume || p.candidate.resume,
         ingested: true,
         prepared: [],
@@ -1427,6 +1438,8 @@ async function roleTask(env: Env, t: TaskRow, p: Payload) {
     request: p.request,
     candidate: p.candidate,
     issues: p.issues,
+    publicCopyCandidate: p.publicCopyCandidate,
+    publicCopyIssues: p.publicCopyIssues,
     world: {
       ...c.document,
       world: effectiveWorld,
@@ -1439,12 +1452,14 @@ async function roleTask(env: Env, t: TaskRow, p: Payload) {
         : {}),
     },
     operationDraft,
-    sourceExcerpts: await relevantSourceExcerpts(
-      env,
-      c.id,
-      await sourceManifest(env, c.id),
-      c.document as unknown as Record<string, unknown>,
-    ),
+    sourceExcerpts: p.publicCopyCandidate
+      ? []
+      : await relevantSourceExcerpts(
+          env,
+          c.id,
+          await sourceManifest(env, c.id),
+          c.document as unknown as Record<string, unknown>,
+        ),
   };
   if (t.role === "world") {
     const raw = await modelResult(env, t, "world", context, schemas.world);
@@ -1526,7 +1541,9 @@ async function roleTask(env: Env, t: TaskRow, p: Payload) {
     const ids = new Set(effectiveWorld?.elements.map((e) => e.id));
     if (value.entries.some((e) => e.elementIds.some((id) => !ids.has(id))))
       throw new DomainError("EDITORIAL_UNKNOWN_ELEMENT");
+    if (await repairPublicCandidate(env, t, p, "editorial", value)) return;
     await child(env, t, "review", {
+      publicCopyRepairCount: p.publicCopyRepairCount,
       candidateRole: "editorial",
       candidate: value,
       resume: p.resume,
@@ -1580,7 +1597,9 @@ async function roleTask(env: Env, t: TaskRow, p: Payload) {
       )
         throw new DomainError("TRANSLATION_TERMS_INCOMPLETE");
     }
+    if (await repairPublicCandidate(env, t, p, "translation", value)) return;
     await child(env, t, "review", {
+      publicCopyRepairCount: p.publicCopyRepairCount,
       candidateRole: "translation",
       candidate: value,
       resume: p.resume,
@@ -1589,6 +1608,36 @@ async function roleTask(env: Env, t: TaskRow, p: Payload) {
     return;
   }
   throw new DomainError("ROLE_UNSUPPORTED");
+}
+async function repairPublicCandidate(
+  env: Env,
+  t: TaskRow,
+  p: Payload,
+  role: "editorial" | "translation",
+  candidate: unknown,
+) {
+  const issues =
+    role === "editorial"
+      ? publicEditorialIssues(candidate)
+      : publicTranslationIssues(candidate);
+  if (!issues.length) return false;
+  const count = Number(p.publicCopyRepairCount || 0);
+  if (count >= 2)
+    throw new DomainError(
+      "PUBLIC_COPY_INVALID",
+      "公開文字仍有尚未完成的整理，已停止這次製作；原稿、核准設定與影像已保存，沒有發布。你可以說「重試上一項工作」。",
+      422,
+    );
+  await child(env, t, role, {
+    request:
+      "只修正公開文案與語系問題。直接寫給公開網站讀者，不描述原稿、候選、作者審核或製作過程；保留既有世界與影像，不新增設定。",
+    publicCopyCandidate: candidate,
+    publicCopyIssues: issues,
+    publicCopyRepairCount: count + 1,
+    repairCount: Number(p.repairCount || 0),
+    resume: p.resume,
+  });
+  return true;
 }
 async function hookTask(env: Env, t: TaskRow, p: Payload) {
   const c = await getConversation(env, t.conversation_id),
@@ -1732,6 +1781,7 @@ export async function processConversationTask(env: Env, taskId: string) {
           "GOOGLE_AUTH_REQUIRED",
           "OPERATION_PAUSED",
           "OPERATION_BUDGET_REACHED",
+          "PUBLIC_COPY_INVALID",
           "SITE_COPY_REQUIRED",
           "SITE_TRANSLATION_REQUIRED",
           "SITE_CHECKS_PENDING",
@@ -2011,23 +2061,43 @@ function nextSiteWork(document: ConversationDocument): {
       "請先確認創作方向，之後我會接著完成世界內容、視覺試稿與網站預覽。",
       422,
     );
+  const editorialIssues = document.editorial
+    ? publicEditorialIssues(document.editorial)
+    : [];
+  const translationIssues = document.translations
+    ? publicTranslationIssues(document.translations)
+    : [];
   const role: StudioRole = !document.world
     ? "world"
     : !document.visual?.selectedAssetId
       ? "visual"
       : !document.journey
         ? "journey"
-        : !document.editorial
+        : !document.editorial || editorialIssues.length
           ? "editorial"
-          : document.world.elements.length &&
-              (!document.translations ||
-                document.translationsSourceHash !== document.editorialHash)
+          : translationIssues.length ||
+              (document.world.elements.length &&
+                (!document.translations ||
+                  document.translationsSourceHash !== document.editorialHash))
             ? "translation"
             : "site";
   return {
     role,
     payload: {
       resume: "site",
+      ...(role === "editorial" && editorialIssues.length
+        ? {
+            publicCopyCandidate: document.editorial,
+            publicCopyIssues: editorialIssues,
+            publicCopyRepairCount: 1,
+          }
+        : role === "translation" && translationIssues.length
+          ? {
+              publicCopyCandidate: document.translations,
+              publicCopyIssues: translationIssues,
+              publicCopyRepairCount: 1,
+            }
+          : {}),
       request:
         role === "world"
           ? "為這個網站提出少量初始世界內容，等待作者確認。"

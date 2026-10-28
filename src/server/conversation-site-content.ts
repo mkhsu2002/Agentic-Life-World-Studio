@@ -5,6 +5,7 @@ import type {
 } from "../shared/conversation";
 import type { SiteContent } from "./conversation-site-code";
 import { DomainError } from "./domain";
+import { publicTextIssues, publicLocaleIssues } from "./public-copy";
 const entry = z.object({
   title: z.string(),
   body: z.string(),
@@ -122,9 +123,29 @@ export function visibleCopy(
 export function assertPublicCopy(
   contents: Partial<Record<StudioLocale, SiteContent>>,
 ) {
-  const forbidden =
-    /(?:DRAFT_CANON|CANON_ANCHOR|system prompt|muse-spark|muse-image|MODEL_API_KEY|原著核心錨點|作者裁定|內部提示詞|生成規格|補全提案)/i;
-  if (visibleCopy(contents).some((t) => forbidden.test(t)))
+  if (
+    visibleCopy(contents).some((text) => publicTextIssues(text).length > 0) ||
+    Object.values(contents).some(
+      (content) =>
+        publicLocaleIssues(
+          [
+            content.title,
+            content.summary,
+            content.caption,
+            ...content.entries.flatMap((entry) => [
+              entry.title,
+              entry.body,
+              entry.caption,
+            ]),
+            ...content.elements.flatMap((element) => [
+              element.definition,
+              element.appearance,
+            ]),
+          ],
+          content.locale,
+        ).length > 0,
+    )
+  )
     throw new DomainError(
       "PUBLIC_COPY_REVIEW_REQUIRED",
       "公開內容還有不適合對讀者呈現的工作文字，修正後再發布。",

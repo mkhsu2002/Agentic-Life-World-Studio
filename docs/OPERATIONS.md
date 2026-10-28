@@ -79,7 +79,7 @@ node scripts/verify-deployment.mjs <base-url> <full-commit-sha> <dev-or-producti
 
 瀏覽器 fixture：`/tests/fixtures/conversation-file-browser.html` 僅由本機 Vite 提供；實際 DOCX／PDF 各八張測試圖片，驗證六張真實參考、末段文字及兩張未納入警告。單元測試的 PDF 模擬不當作瀏覽器 canvas 驗證。
 
-公開輸出檢查涵蓋三語正文、導覽、SEO、ARIA、替代文字及資產。不得公開來源、私人指示、核准證據、prompt 或模型選型。只有已確認快照能進公開 DTO；發布錯誤不能修改前一 active。
+公開輸出檢查涵蓋三語正文、導覽、SEO、ARIA、替代文字及資產。編輯及翻譯候選先檢查語系、必填文字及私人製作註記；不合格交回同角色修復，最多兩次，修後再獨立回查原文。既有錯誤文案建站時同樣接續修復，不重建核准世界或影像；預覽及發布再做一次最終檢查。不得公開來源、私人指示、核准證據、prompt 或模型選型。只有已確認快照能進公開 DTO；發布錯誤不能修改前一 active。
 
 ### 本輪查核狀態
 
