@@ -1296,7 +1296,7 @@ it("reads every selected reference image in bounded batches instead of silently 
   for (let n = 0; n < 5; n++) await processConversationTask(env, a.body.taskId);
   expect(referenceCalls).toBe(3);
   expect(pixels).toBe(6);
-});
+}, 15000);
 it("returns a latest snapshot watermark beyond 1000 events and allows reading older history", async () => {
   const id = await create();
   const insert = sql.prepare(

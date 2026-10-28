@@ -54,7 +54,7 @@ Studio 新 API 在 `/api/studio/`，舊 `/api/worlds/` 留作歷史資料相容�
 
 CI 失敗回報在同一對話顯示，保留前一個 active。重試只重跑實際失敗的正式 Actions，或針對已部署版本重新讀回；不以空 commit／時間戳喚醒 CI。dev 不合併正式網站候選。
 
-`push`／PR paths 僅包含會影響程式、資料契約或正式輸出的檔案；README、docs、audit、handoff 等純文件不啟動完整 CI 或部署。
+`push`／PR paths 僅包含會影響程式、資料契約或正式輸出的檔案；README、docs、audit、handoff 等純文件不啟動完整 CI 或部署。同 repository 的開發／世界候選分支已由 push 驗證時，PR 不重跑相同完整驗證；其他分支及外部 PR 保留驗證。
 
 ## 排程與成本
 

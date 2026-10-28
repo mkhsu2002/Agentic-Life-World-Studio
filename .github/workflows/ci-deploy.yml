@@ -29,6 +29,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   validate:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      (github.head_ref != 'feat/v007-conversation' && !startsWith(github.head_ref, 'world/'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
