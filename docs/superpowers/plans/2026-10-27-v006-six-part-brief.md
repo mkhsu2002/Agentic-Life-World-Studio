@@ -1,5 +1,7 @@
 # v0.06 六項創作簡報 Implementation Plan
 
+> 狀態：2026-10-27 封存。本文件為重新規劃前的既有文件，僅供查核既有資源與歷史版本；不代表新產品需求或繼續開發的授權。新規劃以 `docs/PRD.md` 的待確認提案為準。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this approved plan task-by-task. Each implementer owns separate files; root integrates and reviews before publishing.
 
 **Goal:** AI 先填六段創作簡報，只問必要的作者裁定，保留顯式設定／視覺／啟用核准。
