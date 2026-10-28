@@ -3877,3 +3877,49 @@ progress::-moz-progress-bar {
     justify-content: space-between;
   }
 }
+
+/* Keep the next action visible before the long world review. */
+.workflow-next {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 24px 0;
+}
+.workflow-next h2 {
+  margin-top: 0;
+}
+.workflow-next .primary {
+  flex-shrink: 0;
+  text-decoration: none;
+  text-align: center;
+}
+.workflow-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.workflow-progress progress {
+  flex: 1;
+  min-width: 140px;
+  max-width: 360px;
+}
+.review-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 20px 0;
+}
+.world-review section[id] {
+  scroll-margin-top: 24px;
+}
+@media (max-width: 700px) {
+  .workflow-next {
+    flex-direction: column;
+  }
+  .workflow-next .primary {
+    width: 100%;
+  }
+}

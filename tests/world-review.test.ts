@@ -10,6 +10,7 @@ import {
 import { frameworkSchema, moduleKeys } from "../src/shared/world-framework";
 import type { WorldDetail } from "../src/shared/contracts";
 import { WorldPanels } from "../src/client/world-panels";
+import { reviewTabStatus } from "../src/client/world-workflow";
 
 function detail(): WorldDetail {
   const framework = frameworkSchema.parse({
@@ -102,7 +103,19 @@ function detail(): WorldDetail {
         },
       ],
       questions: [],
-      styles: [],
+      styles: [
+        {
+          id: "style",
+          name: "文字方向",
+          description: "依原作設定",
+          medium: "Drawing",
+          palette: ["#112233"],
+          lighting: "Soft",
+          materials: [],
+          forbidden: [],
+          evidence: [],
+        },
+      ],
       selectedStyleId: "style",
       visualApproval: null,
       mode: "mixed",
@@ -162,7 +175,7 @@ it("makes the first personal approval explicit and keeps activation disabled bef
   );
   expect(html).toContain("我已親自檢查");
   expect(html).not.toMatch(/type="checkbox"[^>]*checked/);
-  expect(html).toMatch(/type="checkbox"[^>]*disabled=""/);
+  expect(html).not.toMatch(/type="checkbox"[^>]*disabled=""/);
   expect(html).toMatch(/<button[^>]*disabled=""[^>]*>核准目前設定/);
   expect(html).toMatch(/<button[^>]*disabled=""[^>]*>啟用這個世界/);
   expect(html).toContain("未提供參考圖");
@@ -319,4 +332,145 @@ it("keeps a repair upload entry available when all six source image slots are oc
   );
   expect(html).toContain('type="file"');
   expect(html).toContain("重新上傳");
+});
+
+function panels(d: WorldDetail, tab = "review") {
+  return renderToStaticMarkup(
+    createElement(WorldPanels, {
+      tab,
+      detail: d,
+      busy: false,
+      run: async () => true,
+      retry: () => {},
+      openImportReview: () => {},
+      onWorldUpdated: () => {},
+      onNavigate: () => {},
+    }),
+  );
+}
+it("shows analysis progress in every tab rather than pretending the review is ready", () => {
+  const d = detail();
+  d.world.status = "reading";
+  delete d.world.framework;
+  d.frameworkHash = null;
+  d.jobs = [
+    {
+      id: "job",
+      worldId: d.world.id,
+      kind: "import",
+      status: "running",
+      stage: "世界整理：ecology",
+      completed: 19,
+      total: 37,
+      error: null,
+      createdAt: "2026-10-27",
+      updatedAt: "2026-10-27",
+    },
+  ];
+  for (const tab of ["source", "review", "visual"]) {
+    const html = panels(d, tab);
+    expect(html).toContain('aria-label="下一步"');
+    expect(html).toContain("正在整理世界設定");
+    expect(html).toContain("完成後會自動顯示審核入口");
+    expect(html).toContain('value="19" max="37"');
+  }
+});
+it("provides a direct personal review entry for a persisted, unapproved framework", () => {
+  const html = panels(detail());
+  expect(html).toContain("前往核准區");
+  expect(html).toContain('href="#world-review-approval"');
+  expect(html).toContain('id="world-review-approval"');
+  expect(html).not.toContain("請檢查設定內容與最新世界版本。");
+});
+it("lists each blocking decision beside the approval entry", () => {
+  const d = detail();
+  d.world.selectedStyleId = null;
+  d.world.framework!.extensions.push({
+    id: "ext",
+    module: "life",
+    title: "留白補全",
+    definition: "待確認",
+    reason: "探索用途",
+    limits: "遵守核心",
+    decision: "pending",
+  });
+  d.world.framework!.issues.push({
+    id: "issue",
+    module: "time",
+    message: "年代",
+    recommendation: "保留相對年代",
+    blocking: true,
+    resolution: "",
+  });
+  const html = panels(d);
+  expect(html).toContain("1 項補全或探索範圍尚未決定");
+  expect(html).toContain("1 項重大事項尚未填寫處理決定");
+  expect(html).toContain("前往選擇視覺方向");
+});
+it("lets a fully read world without an active job recover its missing review form", () => {
+  const d = detail();
+  delete d.world.framework;
+  d.world.status = "reading";
+  d.frameworkHash = null;
+  const html = panels(d);
+  expect(html).toMatch(/<button class="primary">建立八模組審核表/);
+});
+it("exposes the source confirmation entry when analysis needs user input", () => {
+  const d = detail();
+  delete d.world.framework;
+  d.world.status = "reading";
+  d.importReview = {
+    id: "r",
+    jobId: "job",
+    kind: "processing",
+    message: "需要確認",
+    segmentOrdinal: null,
+    sourceText: "",
+    problems: [],
+    createdAt: "2026-10-27",
+  };
+  expect(panels(d)).toContain("開啟確認對話");
+});
+it("offers checkpoint retry when analysis has failed", () => {
+  const d = detail();
+  delete d.world.framework;
+  d.world.status = "reading";
+  d.jobs = [
+    {
+      id: "job",
+      worldId: d.world.id,
+      kind: "import",
+      status: "failed",
+      stage: "reading",
+      completed: 1,
+      total: 8,
+      error: "Temporary failure",
+      createdAt: "2026-10-27",
+      updatedAt: "2026-10-27",
+    },
+  ];
+  expect(panels(d)).toContain("從已保存進度重試");
+});
+
+it("labels the review tab by actual readiness and never changes approval state", () => {
+  const d = detail();
+  expect(reviewTabStatus(d)).toBe("待核准");
+  delete d.world.framework;
+  expect(reviewTabStatus(d)).toBe("待建立");
+  d.jobs = [
+    {
+      id: "j",
+      worldId: d.world.id,
+      kind: "import",
+      status: "running",
+      stage: "reading",
+      completed: 1,
+      total: 8,
+      error: null,
+      createdAt: "now",
+      updatedAt: "now",
+    },
+  ];
+  expect(reviewTabStatus(d)).toBe("整理中");
+  expect(d.world.frameworkApproval).toBeUndefined();
 });

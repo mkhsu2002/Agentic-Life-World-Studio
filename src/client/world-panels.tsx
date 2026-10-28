@@ -27,6 +27,7 @@ import {
   isFrameworkApproved,
 } from "./world-review";
 import { moduleLabels } from "../shared/world-framework";
+import { WorldWorkflow } from "./world-workflow";
 import { SourceImagePicker } from "./source-image-picker";
 import { AuditList, JobList, date, statusName, type RunAction } from "./studio";
 
@@ -38,6 +39,7 @@ type Props = {
   retry: (id: string) => void;
   openImportReview: () => void;
   onWorldUpdated: (world: WorldDraft) => void;
+  onNavigate?: (tab: string) => void;
 };
 const worldPath = (id: string) => `/api/worlds/${encodeURIComponent(id)}`;
 const localeNames: Record<Locale, string> = {
@@ -62,8 +64,14 @@ export function WorldPanels(props: Props) {
     ) : null;
   return (
     <>
+      <WorldWorkflow {...props} />
       <div aria-label="世界審核" hidden={props.tab !== "review"}>
-        <WorldReview detail={props.detail} run={props.run} busy={props.busy} />
+        <WorldReview
+          detail={props.detail}
+          run={props.run}
+          busy={props.busy}
+          onNavigate={props.onNavigate}
+        />
       </div>
       <div aria-label="原作與世界" hidden={props.tab !== "source"}>
         <Source {...props} />

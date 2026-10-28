@@ -177,10 +177,12 @@ export function WorldReview({
   detail,
   run,
   busy,
+  onNavigate,
 }: {
   detail: WorldDetail;
   run: RunAction;
   busy: boolean;
+  onNavigate?: (tab: string) => void;
 }) {
   const { world, source } = detail;
   const [draft, setDraft] = useState<WorldFramework | undefined>(
@@ -189,9 +191,6 @@ export function WorldReview({
   const [shown, setShown] = useState(detail);
   const [dirty, setDirty] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
-  const [savedReviewRevision, setSavedReviewRevision] = useState<number | null>(
-    null,
-  );
   const [formError, setFormError] = useState("");
   useEffect(() => {
     if (dirty) return;
@@ -208,10 +207,9 @@ export function WorldReview({
     shown.world.revision !== world.revision ||
     shown.world.recordVersion !== world.recordVersion ||
     shown.frameworkHash !== detail.frameworkHash;
-  const readComplete =
-    source.segmentCount > 0 &&
-    source.processedCount === source.segmentCount &&
-    world.status !== "reading";
+  const coverageComplete =
+    source.segmentCount > 0 && source.processedCount === source.segmentCount;
+  const readComplete = coverageComplete && world.status !== "reading";
   const approved = !dirty && !stale && isFrameworkApproved(detail);
   const visualApproved =
     world.visualApproval?.revision === world.revision &&
@@ -232,11 +230,10 @@ export function WorldReview({
   const ready =
     !dirty &&
     !stale &&
-    savedReviewRevision === world.revision &&
     !!draft &&
     frameworkReviewReady({ ...world, framework: draft }) &&
     readComplete &&
-    !!world.selectedStyleId &&
+    world.styles.some((style) => style.id === world.selectedStyleId) &&
     !!shown.frameworkHash;
   function change(next: WorldFramework) {
     setDraft(next);
@@ -274,7 +271,6 @@ export function WorldReview({
       return result;
     });
     if (ok && savedWorld) {
-      setSavedReviewRevision(savedWorld.revision);
       setDirty(false);
       setAcknowledged(false);
       setFormError("");
@@ -299,13 +295,13 @@ export function WorldReview({
           <p className="eyebrow">WORLD REVIEW</p>
           <h2>建立世界的八模組審核表</h2>
           <p className="muted">
-            原作閱讀完成後，會整理核心設定、留白與可探索範圍，交由你親自檢查。舊版世界需要先重新整理一次。
+            整理完成後，這裡會顯示核心設定、補全與探索範圍的確認表。進行中的整理不需要重複送出；若已停止且原作閱讀完成，可以手動建立審核表。
           </p>
           <button
             className="primary"
             disabled={
               busy ||
-              !readComplete ||
+              !coverageComplete ||
               detail.jobs.some((job) =>
                 ["queued", "running"].includes(job.status),
               )
@@ -343,8 +339,14 @@ export function WorldReview({
         </span>
       </div>
       <p className="muted intro-copy">
-        依序核對八個模組、核心設定與補全提案，儲存後親自核准。接著到「視覺方向」核准試稿，最後回到此處啟用世界。
+        依序核對八個模組、核心設定與補全提案。如有修改，請先儲存再親自核准。接著到「視覺方向」核准試稿，最後回到此處啟用世界。
       </p>
+      <nav className="review-shortcuts" aria-label="審核表快速導覽">
+        <a href="#world-review-modules">核對世界設定</a>
+        <a href="#world-review-decisions">補全與探索範圍</a>
+        <a href="#world-review-issues">待處理事項</a>
+        <a href="#world-review-approval">核准與啟用</a>
+      </nav>
       {dirty && (
         <p className="notice" role="status">
           有尚未儲存的修改。背景更新與操作失敗都會保留此表單；切換分頁也不會清除。
@@ -370,7 +372,7 @@ export function WorldReview({
       )}
       <form className="form-stack" onSubmit={save}>
         <fieldset className="review-fields" disabled={busy}>
-          <section className="panel">
+          <section className="panel" id="world-review-modules">
             <div className="section-heading">
               <h2>01 · 世界八模組</h2>
               <span className="field-note">已知、未交代與不適用分別保留</span>
@@ -463,7 +465,7 @@ export function WorldReview({
               ))}
             </div>
           </section>
-          <section className="panel">
+          <section className="panel" id="world-review-decisions">
             <h2>03 · 補全提案與探索範圍</h2>
             <p className="muted">
               逐項接受或拒絕。只有接受的補全與範圍才會進入後續探索；拒絕的提案仍保留供核對。
@@ -725,7 +727,7 @@ export function WorldReview({
               。請先至「視覺方向」選擇並儲存，再回來核准此表。之後變更方向，設定與視覺核准都需重做。
             </p>
           </section>
-          <section className="panel">
+          <section className="panel" id="world-review-issues">
             <h2>06 · 忠實度與待處理事項</h2>
             <p className="field-note">
               忠實度檢查：
@@ -796,19 +798,14 @@ export function WorldReview({
           </p>
           <button
             className="primary"
-            disabled={
-              busy ||
-              (!dirty && savedReviewRevision === world.revision) ||
-              stale ||
-              !readComplete
-            }
+            disabled={busy || !dirty || stale || !readComplete}
           >
             儲存世界設定
             <Check size={16} />
           </button>
         </div>
       </form>
-      <section className="panel review-approval">
+      <section className="panel review-approval" id="world-review-approval">
         <div className="section-heading">
           <div>
             <p className="eyebrow">FIRST · PERSONAL REVIEW</p>
@@ -817,7 +814,7 @@ export function WorldReview({
           <ShieldCheck size={24} />
         </div>
         <p className="muted">
-          請核對本表所有內容，包含核心定義、接受或拒絕的補全，以及探索範圍。儲存完成後，才可勾選核准。
+          請核對本表所有內容，包含核心定義、接受或拒絕的補全，以及探索範圍。如有修改請先儲存；已儲存且條件齊全的版本可直接勾選並核准。
         </p>
         <label className="preview-confirmation">
           <input
@@ -840,18 +837,78 @@ export function WorldReview({
           {approved ? "目前設定已核准" : "核准目前設定"}
           <Check size={16} />
         </button>
-        {!ready && (
-          <p className="field-note">
-            {dirty
-              ? "請先儲存修改。"
-              : !readComplete
-                ? "請先完成原作閱讀。"
-                : !world.selectedStyleId
-                  ? "請先在「視覺方向」選定並儲存方向。"
-                  : unresolved
-                    ? "請逐項決定補全與探索範圍，並填寫重大事項的處理決定，再儲存。"
-                    : "請檢查設定內容與最新世界版本。"}
-          </p>
+        {!ready && !approved && (
+          <div className="notice" aria-label="核准前待完成事項">
+            <p>完成以下事項後，即可勾選並核准：</p>
+            <ul>
+              {dirty && <li>請先儲存修改。</li>}
+              {stale && <li>世界版本已更新，請載入並核對最新版本。</li>}
+              {!readComplete && <li>請先完成原作閱讀與世界整理。</li>}
+              {!world.styles.some(
+                (style) => style.id === world.selectedStyleId,
+              ) && (
+                <li>
+                  請先選定並儲存視覺方向。
+                  {onNavigate && (
+                    <button
+                      type="button"
+                      className="subtle"
+                      disabled={busy}
+                      onClick={() => onNavigate("visual")}
+                    >
+                      前往選擇視覺方向
+                    </button>
+                  )}
+                </li>
+              )}
+              {[...draft.extensions, ...draft.envelopes].some(
+                (item) => item.decision === "pending",
+              ) && (
+                <li>
+                  <a href="#world-review-decisions">
+                    {
+                      [...draft.extensions, ...draft.envelopes].filter(
+                        (item) => item.decision === "pending",
+                      ).length
+                    }{" "}
+                    項補全或探索範圍尚未決定
+                  </a>
+                </li>
+              )}
+              {draft.issues.some(
+                (issue) => issue.blocking && !issue.resolution.trim(),
+              ) && (
+                <li>
+                  <a href="#world-review-issues">
+                    {
+                      draft.issues.filter(
+                        (issue) => issue.blocking && !issue.resolution.trim(),
+                      ).length
+                    }{" "}
+                    項重大事項尚未填寫處理決定
+                  </a>
+                </li>
+              )}
+              {!frameworkSchema.safeParse(draft).success && (
+                <li>請補齊表單中的必填內容，再儲存。</li>
+              )}
+              {!world.elements.some(
+                (element) => element.id === draft.exploration.startPlace,
+              ) && <li>請在探索方式選擇有效的起始地點。</li>}
+              {draft.relations.some(
+                (relation) =>
+                  !world.elements.some(
+                    (element) => element.id === relation.subjectId,
+                  ) ||
+                  !world.elements.some(
+                    (element) => element.id === relation.objectId,
+                  ),
+              ) && <li>元素關係需要重新核對，請透過 AI 對話處理。</li>}
+              {!shown.frameworkHash && (
+                <li>正在讀取目前設定，請稍候或重新整理資料。</li>
+              )}
+            </ul>
+          </div>
         )}
         {approved && (
           <p className="field-note">
@@ -859,7 +916,7 @@ export function WorldReview({
           </p>
         )}
       </section>
-      <section className="confirmation-panel">
+      <section className="confirmation-panel" id="world-activation">
         <div>
           <ShieldCheck size={25} />
           <h2>最後 · 啟用這個世界</h2>

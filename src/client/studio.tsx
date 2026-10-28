@@ -28,6 +28,7 @@ import type {
 } from "../shared/contracts";
 import { api, post, ApiError, errorMessage } from "./api";
 import { ImportSource } from "./import-source";
+import { reviewTabStatus } from "./world-workflow";
 import { WorldPanels } from "./world-panels";
 import { ImportReviewDialog } from "./import-dialogue";
 
@@ -42,7 +43,7 @@ export const activeJob = (job: Job) =>
   job.status === "queued" || job.status === "running";
 export const statusName = (status: string) =>
   ({
-    reading: "閱讀中",
+    reading: "整理中",
     draft: "待確認",
     confirmed: "已確認",
     queued: "等待中",
@@ -789,8 +790,10 @@ export function Studio() {
                     className={tab === id ? "active" : ""}
                   >
                     {label}
-                    {id === "review" && !detail.world.frameworkApproval && (
-                      <span className="tab-count">待核准</span>
+                    {id === "review" && (
+                      <span className="tab-count">
+                        {reviewTabStatus(detail)}
+                      </span>
                     )}
                   </button>
                 ))}
@@ -802,6 +805,7 @@ export function Studio() {
                 run={run}
                 busy={!!pending}
                 retry={(id) => void retry(id)}
+                onNavigate={setTab}
                 onWorldUpdated={(world) => {
                   setDetail((current) =>
                     current?.world.id === world.id
