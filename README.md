@@ -4,7 +4,7 @@
 
 ## MVP v0.05
 
-私人 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 的 v0.05 補齊整理進度、下一步與核准入口，發布驗證狀態見 [release 紀錄](docs/RELEASE-v0.05.md)。核心與補全都需本人明確確認，系統不自動啟用或發布世界。
+私人 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 的 v0.05 已由 GitHub 同步部署至 dev／production，補齊整理進度、下一步與核准入口；驗證狀態見 [release 紀錄](docs/RELEASE-v0.05.md)。核心與補全都需本人明確確認，系統不自動啟用或發布世界。
 
 - **核准導引：**每個分頁顯示目前進度與下一步。整理中不再誤標待核准；完成後可直達審核及核准區。已儲存版本重新開啟可直接親自確認，無須再儲存一次；缺少的補全決定、重大事項、視覺方向或未儲存修改會逐項列出。
 - **世界解析：**先理解全局、篩選世界關鍵，再由年代文明、地理環境、生命生態、視覺受眾、命名角色細化，獨立審核直接檢視原始來源。每個 Queue 訊息最多一個角色呼叫，保存 checkpoint 與用量。

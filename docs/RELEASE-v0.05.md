@@ -1,6 +1,6 @@
 # v0.05 世界審核與核准入口
 
-狀態：2026-10-27，本機實作與介面驗證完成，GitHub 部署待完成。產品 `0.05`、npm `0.0.5`，API 契約維持 `utsp-studio/0.03`。
+狀態：2026-10-27，GitHub main 發布完成，dev／production 與正式 Studio 頁面已讀回驗證。產品 `0.05`、npm `0.0.5`，API 契約維持 `utsp-studio/0.03`。
 
 ## 修正
 
@@ -15,4 +15,7 @@
 - 本機 156 個測試、typecheck、production build、Prettier 格式檢查通過，npm audit 為 0 vulnerabilities。
 - FlyPig canonical lane 已讀回正確帳戶；中性本機 fixture 於 393px 手機尺寸驗證：整理進度／分頁標記、禁止重送、核准快速跳轉、缺漏清單、視覺分頁導引、未儲存禁止核准及切換分頁保留草稿，無水平溢出。
 - 隔離 fixture 驗證已儲存設定不需額外 save，預設不勾選，勾選後只提交一次 framework-approval，再顯示視覺校準入口。此操作僅作用於中性 fixture，沒有提交任何正式世界核准。
-- GitHub run、雙環境部署及正式頁面讀回於發布後補齊。
+- GitHub [run 40615043503](https://github.com/mkhsu2002/Agentic-Life-World-Studio/actions/runs/40615043503) 成功，依序部署 dev／production。兩環境 health 讀回 `0.05`、契約 `utsp-studio/0.03`、程式 commit `2abd693bc21c578a8c36a5d5e19c98f6aa413989`；Git tag `v0.05` 指向此程式 commit。
+- 部署後再次查核兩環境 BUILD_REVISION、ASSETS／DB／R2／Queue、必要 secret 名稱與 migrations 0001–0005；私人 overview 保持 401，前端 bundle 可正常讀取。
+- 正式 Studio 已實際讀回「正在整理世界設定」、「世界審核 整理中」及更新中的步驟進度。這是作者先前已啟動的工作；本輪沒有代送分析、核准或啟用。
+- 桌面 1440px 與手機 393px 皆無水平溢出；手機核准捷徑可將核准區帶入可見範圍。
