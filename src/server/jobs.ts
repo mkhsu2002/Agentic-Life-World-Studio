@@ -772,6 +772,10 @@ export async function processJob(env: Env, jobId: string) {
 export async function consumeJobs(batch: MessageBatch<JobMessage>, env: Env) {
   for (const message of batch.messages) {
     try {
+      if (!("jobId" in message.body)) {
+        message.ack();
+        continue;
+      }
       const result = await processJob(env, message.body.jobId);
       if (result?.busy)
         message.retry({ delaySeconds: Math.min(43200, result.retryAfter) });

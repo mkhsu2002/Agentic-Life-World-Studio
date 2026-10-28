@@ -1,3 +1,23 @@
+export { StudioAutonomyWorkflow } from "./conversation-workflow";
+import {
+  activateConversationOperation,
+  finishConversationCycle,
+  runOperationWakeup,
+  recoverConversationOperations,
+} from "./conversation-operations";
+import {
+  conversationRoutes,
+  processConversationTask,
+  recoverConversationTasks,
+  registerConversationHooks,
+} from "./conversation";
+import {
+  conversationSiteRoutes,
+  createConversationSite,
+  publishConversationSite,
+  publicConversationPage,
+} from "./conversation-site";
+import { conversationDeploymentRoutes } from "./conversation-deployment";
 import { briefHash } from "./world-brief";
 import { briefRoutes, briefConversation } from "./brief-routes";
 import { worldRoutes, assertRecord } from "./world-routes";
@@ -56,6 +76,12 @@ import { consumeJobs } from "./jobs";
 import { callJson } from "./meta";
 import { siteRoutes } from "./sites";
 import { COPILOT } from "./prompts";
+registerConversationHooks({
+  site: createConversationSite,
+  publish: publishConversationSite,
+  operation: activateConversationOperation,
+  cycle: finishConversationCycle,
+});
 const app = new Hono<{ Bindings: Env }>();
 app.use(
   "/api/*",
@@ -73,21 +99,29 @@ app.use(
       ),
   }),
 );
-app.use(
-  "*",
+app.use("*", (c, next) =>
   secureHeaders({
     contentSecurityPolicy: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: [
+        c.req.path.startsWith("/studio-preview/") ? "'none'" : "'self'",
+      ],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:"],
       connectSrc: ["'self'"],
       workerSrc: ["'self'", "blob:"],
       fontSrc: ["'self'"],
-      frameAncestors: ["'none'"],
+      frameAncestors: [
+        c.req.path.startsWith("/studio-preview/") ? "'self'" : "'none'",
+      ],
+      baseUri: ["'none'"],
+      formAction: ["'self'"],
     },
     referrerPolicy: "same-origin",
-  }),
+    xFrameOptions: c.req.path.startsWith("/studio-preview/")
+      ? "SAMEORIGIN"
+      : "DENY",
+  })(c, next),
 );
 app.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-store");
@@ -97,6 +131,7 @@ app.use("/api/*", async (c, next) => {
     p === "/api/session" ||
     p === "/api/login" ||
     p === "/api/health" ||
+    p === "/api/studio/deployments" ||
     p.startsWith("/api/public/")
   )
     return next();
@@ -111,6 +146,7 @@ app.use("/api/*", async (c, next) => {
   const key = c.req.header("Idempotency-Key");
   if (
     !key ||
+    /^\/api\/studio\/conversations\/[^/]+\/turns$/.test(c.req.path) ||
     ["GET", "HEAD", "OPTIONS"].includes(c.req.method) ||
     ["/api/login", "/api/logout"].includes(c.req.path)
   )
@@ -193,14 +229,14 @@ app.onError((e, c) => {
 });
 app.get("/api/health", async (c) => {
   const schema = await c.env.DB.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sources','worlds','elements','terms','jobs','audit','releases','import_reviews','world_snapshots','analysis_checkpoints','source_images')",
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sources','worlds','elements','terms','jobs','audit','releases','import_reviews','world_snapshots','analysis_checkpoints','source_images','studio_conversations','studio_events','studio_tasks','studio_sources','studio_approvals','studio_memory','studio_usage','studio_sites','studio_publications','studio_operation_runs','studio_automation_wakeups','studio_journey_records')",
   ).all();
   return c.json({
-    status: schema.results.length === 11 ? "ok" : "schema_missing",
+    status: schema.results.length === 23 ? "ok" : "schema_missing",
     version: PRODUCT_VERSION,
     revision: c.env.BUILD_REVISION || "local",
     environment: c.env.ENVIRONMENT,
-    contract: "utsp-studio/0.06",
+    contract: "utsp-studio/0.07",
   });
 });
 app.get("/api/session", async (c) =>
@@ -839,6 +875,20 @@ app.post("/api/jobs/:id/retry", async (c) => {
   await deliverOutbox(c.env);
   return c.json({ jobId: job.id }, 202);
 });
+app.route("/api/studio", conversationRoutes);
+app.route("/", conversationDeploymentRoutes);
+app.route("/", conversationSiteRoutes);
+app.get("/:locale/worlds/:slug", async (c, next) => {
+  const locale = c.req.param("locale");
+  if (!["en", "zh-Hant", "ja"].includes(locale)) return next();
+  const page = await publicConversationPage(
+    c.env,
+    c.req.param("slug"),
+    locale as Locale,
+  );
+  if (page) return page;
+  return next();
+});
 app.route("/api", briefRoutes);
 app.route("/api", worldRoutes);
 app.route("/api", sourceImageRoutes);
@@ -893,13 +943,37 @@ app.all("*", async (c) => {
 });
 export default {
   fetch: app.fetch,
-  queue: consumeJobs,
+  queue: async (batch, env) => {
+    for (const message of batch.messages) {
+      if ("studioWakeupId" in message.body) {
+        try {
+          await runOperationWakeup(env, message.body.studioWakeupId);
+          message.ack();
+        } catch {
+          message.retry({ delaySeconds: 60 });
+        }
+      } else if ("studioTaskId" in message.body) {
+        try {
+          await processConversationTask(env, message.body.studioTaskId);
+          message.ack();
+        } catch {
+          message.retry({ delaySeconds: 60 });
+        }
+      } else await consumeJobs({ ...batch, messages: [message] }, env);
+    }
+  },
   scheduled: async (
     _event: ScheduledController,
     env: Env,
     ctx: ExecutionContext,
   ) => {
-    ctx.waitUntil(deliverOutbox(env));
+    ctx.waitUntil(
+      Promise.all([
+        deliverOutbox(env),
+        recoverConversationTasks(env),
+        recoverConversationOperations(env),
+      ]),
+    );
   },
 } satisfies ExportedHandler<Env, JobMessage>;
 export { app };

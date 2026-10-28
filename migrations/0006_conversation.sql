@@ -1,0 +1,26 @@
+-- Independent conversation state. Legacy sources, worlds and approvals remain unchanged.
+CREATE TABLE studio_conversations(id TEXT PRIMARY KEY,title TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'idle',document_json TEXT NOT NULL,cancel_epoch INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE studio_events(id INTEGER PRIMARY KEY AUTOINCREMENT,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),type TEXT NOT NULL,content TEXT NOT NULL,data_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL);
+CREATE INDEX studio_events_replay ON studio_events(conversation_id,id);
+CREATE TABLE studio_tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),turn_id TEXT NOT NULL,role TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued',attempts INTEGER NOT NULL DEFAULT 0,payload_json TEXT NOT NULL,source_revision INTEGER NOT NULL,cancel_epoch INTEGER NOT NULL,lease_until TEXT,error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE INDEX studio_tasks_ready ON studio_tasks(status,created_at);
+CREATE TABLE studio_turns(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),client_message_id TEXT NOT NULL,input_hash TEXT NOT NULL,event_id INTEGER NOT NULL REFERENCES studio_events(id),task_id TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,UNIQUE(conversation_id,client_message_id));
+CREATE TABLE studio_outbox(task_id TEXT PRIMARY KEY REFERENCES studio_tasks(id),dispatched_at TEXT,created_at TEXT NOT NULL);
+CREATE TABLE studio_sources(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),name TEXT NOT NULL,kind TEXT NOT NULL,url TEXT,storage_key TEXT NOT NULL,content_hash TEXT NOT NULL,char_count INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'ready',metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL,UNIQUE(conversation_id,content_hash));
+CREATE TABLE studio_assets(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),kind TEXT NOT NULL,name TEXT NOT NULL,content_type TEXT NOT NULL,storage_key TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE studio_proposals(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),kind TEXT NOT NULL,revision INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',content_json TEXT NOT NULL,content_hash TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX studio_proposals_current ON studio_proposals(conversation_id,status);
+CREATE TABLE studio_approvals(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),proposal_id TEXT NOT NULL UNIQUE REFERENCES studio_proposals(id),proposal_hash TEXT NOT NULL,owner_event_id INTEGER NOT NULL REFERENCES studio_events(id),revision INTEGER NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE studio_memory(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),revision INTEGER NOT NULL,document_json TEXT NOT NULL,proposal_id TEXT NOT NULL REFERENCES studio_proposals(id),created_at TEXT NOT NULL,UNIQUE(conversation_id,revision));
+CREATE TABLE studio_audit(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),action TEXT NOT NULL,data_json TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE studio_usage(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),task_id TEXT NOT NULL REFERENCES studio_tasks(id),role TEXT NOT NULL,state TEXT NOT NULL,input_tokens INTEGER NOT NULL DEFAULT 0,output_tokens INTEGER NOT NULL DEFAULT 0,receipt_key TEXT,created_at TEXT NOT NULL);
+CREATE TABLE studio_checkpoints(task_id TEXT NOT NULL REFERENCES studio_tasks(id),stage TEXT NOT NULL,input_hash TEXT NOT NULL,storage_key TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(task_id,stage,input_hash));
+CREATE TABLE studio_guards(id TEXT PRIMARY KEY,passed INTEGER NOT NULL CHECK(passed=1));
+CREATE TRIGGER studio_events_immutable_update BEFORE UPDATE ON studio_events BEGIN SELECT RAISE(ABORT,'immutable event'); END;
+CREATE TRIGGER studio_events_immutable_delete BEFORE DELETE ON studio_events BEGIN SELECT RAISE(ABORT,'immutable event'); END;
+CREATE TRIGGER studio_memory_immutable_update BEFORE UPDATE ON studio_memory BEGIN SELECT RAISE(ABORT,'immutable memory'); END;
+CREATE TRIGGER studio_memory_immutable_delete BEFORE DELETE ON studio_memory BEGIN SELECT RAISE(ABORT,'immutable memory'); END;
+CREATE TRIGGER studio_approvals_immutable_update BEFORE UPDATE ON studio_approvals BEGIN SELECT RAISE(ABORT,'immutable approval'); END;
+CREATE TRIGGER studio_approvals_immutable_delete BEFORE DELETE ON studio_approvals BEGIN SELECT RAISE(ABORT,'immutable approval'); END;
+CREATE TABLE studio_quota_reservations(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),run_id TEXT NOT NULL,task_id TEXT NOT NULL REFERENCES studio_tasks(id),usage_id TEXT NOT NULL UNIQUE,state TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE studio_crawls(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES studio_conversations(id),state_json TEXT NOT NULL,updated_at TEXT NOT NULL);

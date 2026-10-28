@@ -9,7 +9,14 @@
     "directory": "dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/media/*"],
+    "run_worker_first": [
+      "/api/*",
+      "/media/*",
+      "/studio-preview/*",
+      "/en/worlds/*",
+      "/zh-Hant/worlds/*",
+      "/ja/worlds/*",
+    ],
   },
   "observability": {
     "enabled": true,
@@ -20,6 +27,13 @@
   "env": {
     "dev": {
       "name": "agentic-world-studio-dev",
+      "workflows": [
+        {
+          "binding": "OPERATIONS",
+          "name": "agentic-world-studio-dev-operations",
+          "class_name": "StudioAutonomyWorkflow",
+        },
+      ],
       "vars": {
         "ENVIRONMENT": "dev",
         "BUILD_REVISION": "development",
@@ -61,6 +75,13 @@
     },
     "production": {
       "name": "agentic-world-studio-production",
+      "workflows": [
+        {
+          "binding": "OPERATIONS",
+          "name": "agentic-world-studio-production-operations",
+          "class_name": "StudioAutonomyWorkflow",
+        },
+      ],
       "vars": {
         "ENVIRONMENT": "production",
         "BUILD_REVISION": "development",

@@ -1,8 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { Studio } from "./studio";
+import { ConversationStudio } from "./conversation-studio";
 import { PublicSite } from "./public";
-import "./styles.css";
 import type { Locale } from "../shared/contracts";
 
 const path = window.location.pathname;
@@ -11,6 +10,7 @@ if (legacy)
   window.location.replace(`/en/worlds/${legacy[1]}${window.location.search}`);
 const previewMatch = path.match(/^\/preview\/([^/]+)\/(en|zh-Hant|ja)\/?$/);
 const publicMatch = path.match(/^\/(en|zh-Hant|ja)\/worlds\/([^/]+)\/?$/);
+if (legacy || previewMatch || publicMatch) void import("./styles.css");
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     {previewMatch ? (
@@ -27,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
         slug={decodeURIComponent(publicMatch[2])}
       />
     ) : legacy ? null : (
-      <Studio />
+      <ConversationStudio />
     )}
   </React.StrictMode>,
 );

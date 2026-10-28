@@ -28,3 +28,4 @@ __pycache__/
 
 # Local browser QA output
 .playwright-mcp/
+/deploy-metadata/

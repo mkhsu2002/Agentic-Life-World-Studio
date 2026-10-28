@@ -79,6 +79,8 @@ beforeEach(() => {
   sqlite.exec(readFileSync("migrations/0003_active_jobs.sql", "utf8"));
   sqlite.exec(readFileSync("migrations/0004_import_dialogue.sql", "utf8"));
   sqlite.exec(readFileSync("migrations/0005_world_framework.sql", "utf8"));
+  sqlite.exec(readFileSync("migrations/0006_conversation.sql", "utf8"));
+  sqlite.exec(readFileSync("migrations/0007_site_operations.sql", "utf8"));
   const db = {
     prepare: (sql: string) => new Statement(sql),
     batch: async (statements: Statement[]) => {
@@ -2132,4 +2134,68 @@ it("uses the compact pipeline only when the author explicitly requests reanalysi
   expect(JSON.parse(row.payload_json)).toEqual({ analysisVersion: "0.06" });
   expect((await getWorld(env, "w")).briefApproval).toBeNull();
   expect((await getWorld(env, "w")).brief).toBeUndefined();
+});
+it("lets conversational turn idempotency recover through the full app despite an old pending operation key", async () => {
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: await cookie(),
+  };
+  const create = await app.request(
+    "/api/studio/conversations",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Neutral API fixture" }),
+    },
+    env,
+  );
+  expect(create.status).toBe(201);
+  const snapshot = (await create.json()) as any;
+  const id = snapshot.conversation.id;
+  const key = "retry-conversation-key";
+  sqlite
+    .prepare(
+      "INSERT INTO operation_keys(key,body_hash,response_json,created_at) VALUES(?,?,?,?)",
+    )
+    .run(key, "old-hash", JSON.stringify({ pending: true }), "now");
+  const body = JSON.stringify({
+    clientMessageId: key,
+    message: "請讀這個世界",
+    attachments: [],
+  });
+  const request = () =>
+    app.request(
+      "/api/studio/conversations/" + id + "/turns",
+      { method: "POST", headers: { ...headers, "Idempotency-Key": key }, body },
+      env,
+    );
+  const first = await request();
+  expect(first.status).toBe(202);
+  const accepted = (await first.json()) as any;
+  const duplicate = await request();
+  expect(duplicate.status).toBe(202);
+  expect(((await duplicate.json()) as any).taskId).toBe(accepted.taskId);
+  expect(
+    sqlite
+      .prepare("SELECT COUNT(*) n FROM studio_turns WHERE conversation_id=?")
+      .get(id),
+  ).toEqual({ n: 1 });
+});
+it("permits same-origin private preview framing through the final global headers without allowing public framing", async () => {
+  const preview = await app.request(
+    "/studio-preview/not-found/en",
+    { headers: { Cookie: await cookie() } },
+    env,
+  );
+  expect(preview.headers.get("Content-Security-Policy")).toContain(
+    "frame-ancestors 'self'",
+  );
+  expect(preview.headers.get("Content-Security-Policy")).toContain(
+    "script-src 'none'",
+  );
+  expect(preview.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+  const studio = await app.request("/api/health", {}, env);
+  expect(studio.headers.get("Content-Security-Policy")).toContain(
+    "frame-ancestors 'none'",
+  );
 });

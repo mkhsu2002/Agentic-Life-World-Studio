@@ -1,5 +1,7 @@
 declare module "mammoth/mammoth.browser" {
-  export function extractRawText(input: {
-    arrayBuffer: ArrayBuffer;
-  }): Promise<{ value: string; messages: { message: string }[] }>;
+  const mammoth: typeof import("mammoth");
+  export default mammoth;
+  export const extractRawText: typeof mammoth.extractRawText;
+  export const convertToHtml: typeof mammoth.convertToHtml;
+  export const images: typeof mammoth.images;
 }
