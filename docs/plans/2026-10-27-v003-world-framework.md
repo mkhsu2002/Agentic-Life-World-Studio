@@ -34,5 +34,7 @@
 - [x] 執行 `npm run check`、`npm run format:check`、`npm audit --audit-level=moderate`；進行桌面／手機 UI 驗證，送出失敗保留表單，審查公開 DTO 與文案不含內部欄位。
 - [x] 同步 VERSION、package metadata、API health／verification script、README、設計狀態與 RELEASE-v0.03；歷史文件只加狀態註記。
 - [x] 規格審查通過後進行程式品質審查，修復後再跑相關測試。
-- [ ] commit、合併 main、push，由 GitHub 部署 dev 與 production；核對 migration0005、bindings、secret 名稱、health、前端 bundle、私人 API與核准 audit。新建中性測試草稿可做 live smoke test，但不代替作者核准真實世界。
-- [ ] 完成產品 tag v0.03 與發布紀錄，提供正式 Studio 連結；若 live 失敗先修復，不宣告完成。
+- [x] commit、合併 main、push，由 GitHub 部署 dev 與 production；核對 migration0005、bindings、secret 名稱、health、前端 bundle、私人 API與核准 audit。新建中性測試草稿可做 live smoke test，但不代替作者核准真實世界。
+- [x] 完成產品 tag v0.03 與發布紀錄，提供正式 Studio 連結；若 live 失敗先修復，不宣告完成。
+
+完成狀態：2026-10-27，146 tests、規格／品質複審、兩環境 migration/API/frontend/readback 與 dev 真實解析通過。未代作者核准或啟用真實作品；具體證據與限制見 RELEASE-v0.03.md。

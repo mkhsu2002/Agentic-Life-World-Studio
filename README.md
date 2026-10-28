@@ -4,7 +4,7 @@
 
 ## MVP v0.03
 
-私人 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 的 v0.03 程式已完成本機整合，GitHub 與兩環境發布驗證進度見 [release 紀錄](docs/RELEASE-v0.03.md)。本版優先世界解析、首次確認表與視覺校準；核心與補全都需本人明確確認，系統不自動啟用或發布世界。
+私人 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 的 v0.03 已由 GitHub 部署至 dev／production，程式、資料庫、API 與前端讀回驗證通過，詳見 [release 紀錄](docs/RELEASE-v0.03.md)。本版優先世界解析、首次確認表與視覺校準；核心與補全都需本人明確確認，系統不自動啟用或發布世界。
 
 - **世界解析：**先理解全局、篩選世界關鍵，再由年代文明、地理環境、生命生態、視覺受眾、命名角色細化，獨立審核直接檢視原始來源。每個 Queue 訊息最多一個角色呼叫，保存 checkpoint 與用量。
 - **首次世界審核：**八個內容模組、核心錨點、逐項補全／生成範圍、命名、受眾、探索起點、視覺規範及高影響疑義。AI 先填方案，作者可修改、儲存並明確核准；未知與不適用合法。

@@ -1,6 +1,6 @@
 # v0.03 世界解析、首次確認與視覺校準
 
-狀態：2026-10-27，本機實作與整合驗證完成；GitHub 發布與兩環境 live 驗證尚待執行，不以本文件存在宣稱已部署。產品 `0.03`、npm `0.0.3`、API 契約 `utsp-studio/0.03`。
+狀態：2026-10-27，GitHub main 發布完成，dev／production 的 deployed code、schema、API、前端與 bindings 均已交叉驗證。產品 `0.03`、npm `0.0.3`、API 契約 `utsp-studio/0.03`。
 
 ## 本版交付
 
@@ -25,7 +25,11 @@
 
 - Migration `0005_world_framework.sql` 新增 `world_snapshots`、`analysis_checkpoints`、`source_images`。不改既有原作內容、不重寫歷史核准、不喚醒舊待確認工作。
 - 新 `/framework`、`/framework-approval`、`/analyze`、`/source-images` 為 owner-only；world detail 增加 `frameworkHash`。最終 `/confirm` 需明確的 recordVersion 與 hash，來源／視覺／設定核准都須同版。
-- GitHub main 依序執行 dev migration／Worker／前端讀回，再執行 production 同版本流程。尚未核對的 live 項目不能標為通過；不從本機直接 deploy。
+- GitHub [最終 run 40608967393](https://github.com/mkhsu2002/Agentic-Life-World-Studio/actions/runs/40608967393) 成功，依序部署 dev／production；兩環境皆讀回程式 commit `2c806120633e1541a0d0392d1e5b6d4ec3adddbe`、產品 `0.03`、契約 `utsp-studio/0.03`。首輪 [run 40608406555](https://github.com/mkhsu2002/Agentic-Life-World-Studio/actions/runs/40608406555) 也成功；後續修補完成瞬間的 detail 狀態競態後才定版。
+- 兩環境實際讀回 migrations0001–0005、新增三張資料表、DB／R2／Queue／assets bindings、BUILD_REVISION 與三個必要 secret 名稱；未讀出或保存 secret 值。私人 API 匿名 401，Studio HTML／JS bundle 讀回通過；正式登入頁顯示 v0.03。
+- dev 中性測試稿實際完成來源閱讀、六個構建角色與一次原文忠實度審核：1/1 來源覆蓋、8 個世界模組、7 筆角色 checkpoint、8 筆 incurred usage；產物為 draft，frameworkApproval／visualApproval 皆空、release 數為 0。未決補全的核准 API 實際回 409 `EXTENSION_DECISIONS_REQUIRED`。
+- 正式環境既有世界仍為原待確認狀態，無新增模型工作；不完整來源的啟用嘗試回 409 `SOURCE_INCOMPLETE`，未改 revision／status。沒有替作者核准真實作品、觸發真實作品生圖或發布其網站。
+- 本輪未由本機 deploy。`v0.03` tag 指向最終受測程式 commit；之後 docs-only 記錄提交可使 main HEAD 更新，實際程式版本以 BUILD_REVISION 為準。
 
 ## 範圍與限制
 
