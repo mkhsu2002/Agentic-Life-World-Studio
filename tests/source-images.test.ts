@@ -159,7 +159,7 @@ it("rejects over-limit image counts and bytes before persistence", async () => {
     validateSourceImageInputs([
       {
         ...image,
-        dataUrl: `data:image/png;base64,${"A".repeat(3 * 1024 * 1024)}`,
+        dataUrl: `data:image/png;base64,${"A".repeat(8 * 1024 * 1024)}`,
       },
     ]),
   ).rejects.toMatchObject({ code: "SOURCE_IMAGE_TOO_LARGE" });
@@ -271,14 +271,65 @@ it("provides source-create statements without committing any partial database re
   ).toMatchObject({ n: 1 });
 });
 
-it("rejects more than 6 MB total decoded images", async () => {
-  const bytes = new Uint8Array(1600 * 1024);
+function sizedImage(size: number, marker = 0) {
+  const bytes = Buffer.alloc(size);
   bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
-  const dataUrl = `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
-  await expect(
-    validateSourceImageInputs(Array(4).fill({ label: "Source", dataUrl })),
-  ).rejects.toMatchObject({ code: "SOURCE_IMAGE_TOTAL_TOO_LARGE" });
+  bytes[8] = marker;
+  return {
+    label: "Capacity fixture",
+    dataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
+  };
+}
+it("persists and reads back an image at the inclusive 5 MB boundary", async () => {
+  const large = sizedImage(5 * 1024 * 1024);
+  const response = await upload({
+    revision: 1,
+    recordVersion: 1,
+    image: large,
+  });
+  expect(response.status).toBe(201);
+  const w = await getWorld(env, "w");
+  expect(await sourceImageData(env, w)).toEqual([large.dataUrl]);
+  expect(w.frameworkApproval).toBeNull();
+  expect(w.visualApproval).toBeNull();
 });
+it("rejects a single image one byte over 5 MB without persisting anything", async () => {
+  const response = await upload({
+    revision: 1,
+    recordVersion: 1,
+    image: sizedImage(5 * 1024 * 1024 + 1),
+  });
+  expect(response.status).toBe(422);
+  expect(await response.json()).toMatchObject({
+    code: "SOURCE_IMAGE_TOO_LARGE",
+  });
+  expect(objects.size).toBe(0);
+  expect(
+    db.prepare("SELECT COUNT(*) AS n FROM source_images").get(),
+  ).toMatchObject({ n: 0 });
+});
+it("accepts 15 MB across distinct images and rejects additional bytes", async () => {
+  const images = [0, 1, 2].map((marker) => sizedImage(5 * 1024 * 1024, marker));
+  const w = world();
+  const statements = await sourceImageStatements(
+    env,
+    w,
+    await validateSourceImageInputs(images),
+  );
+  await env.DB.batch(statements);
+  expect(await sourceImageData(env, w)).toEqual(images.map((i) => i.dataUrl));
+  await expect(
+    validateSourceImageInputs([...images, sizedImage(9, 3)]),
+  ).rejects.toMatchObject({ code: "SOURCE_IMAGE_TOTAL_TOO_LARGE" });
+  await expect(
+    sourceImageStatements(
+      env,
+      w,
+      await validateSourceImageInputs([sizedImage(9, 3)]),
+    ),
+  ).rejects.toMatchObject({ code: "SOURCE_IMAGE_TOTAL_TOO_LARGE" });
+  expect(objects.size).toBe(3);
+}, 15000);
 
 it("rolls back asset, reference and audit when another mutation wins the world lock", async () => {
   const batch = env.DB.batch.bind(env.DB);

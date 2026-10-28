@@ -1,5 +1,7 @@
 # v0.03 世界解析、首次確認與視覺校準
 
+歷史快照：本文件記錄 v0.03 發布當時狀態；圖片容量後續由 [v0.04](RELEASE-v0.04.md) 調整，下列 2 MB／6 MB 為當時限制。
+
 狀態：2026-10-27，GitHub main 發布完成，dev／production 的 deployed code、schema、API、前端與 bindings 均已交叉驗證。產品 `0.03`、npm `0.0.3`、API 契約 `utsp-studio/0.03`。
 
 ## 本版交付

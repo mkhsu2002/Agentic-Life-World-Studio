@@ -5,6 +5,7 @@ import {
   validateSourceImageInputs,
   sourceImageStatements,
 } from "./source-images";
+import { MAX_API_REQUEST_BYTES } from "../shared/source-image-limits";
 import { PRODUCT_VERSION } from "../shared/version";
 import { importRoutes } from "./import-routes";
 import { openImportReview, importSuggestions } from "./import-dialogue";
@@ -57,13 +58,13 @@ const app = new Hono<{ Bindings: Env }>();
 app.use(
   "/api/*",
   bodyLimit({
-    maxSize: 14 * 1024 * 1024,
+    maxSize: MAX_API_REQUEST_BYTES,
     onError: (c) =>
       c.json(
         {
           error: {
             code: "REQUEST_TOO_LARGE",
-            message: "Request exceeds 14 MB",
+            message: "上傳內容超過 28 MB，請減少圖片或文字後重試。",
           },
         },
         413,

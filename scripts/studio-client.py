@@ -7,7 +7,7 @@ class Studio:
   self.base=base.rstrip('/');cookies=http.cookiejar.CookieJar();self.opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
   self.call('/api/login',{'password':read('agentic.world.studio','owner-password')})
  def call(self,path,data=None,method=None):
-  req=urllib.request.Request(self.base+path,data=json.dumps(data).encode() if data is not None else None,method=method,headers={'Content-Type':'application/json','User-Agent':'WorldStudio/0.03'})
+  req=urllib.request.Request(self.base+path,data=json.dumps(data).encode() if data is not None else None,method=method,headers={'Content-Type':'application/json','User-Agent':'WorldStudio/0.04'})
   try:
    with self.opener.open(req,timeout=240) as response:return json.load(response)
   except urllib.error.HTTPError as error:

@@ -1753,3 +1753,38 @@ it("returns the freshly compiled world if a job completes during the detail read
     (await getWorld(env, "w")).recordVersion,
   );
 });
+
+it("allows a 15 MB image import through the request limit and commits all references", async () => {
+  const images = [0, 1, 2].map((marker) => {
+    const bytes = Buffer.alloc(5 * 1024 * 1024);
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10, marker]);
+    return {
+      label: "Capacity fixture",
+      dataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
+    };
+  });
+  env.MODEL_API_KEY = "test-only";
+  env.STORAGE = { put: vi.fn(async () => {}) } as unknown as R2Bucket;
+  env.JOBS = { send: vi.fn(async () => {}) } as unknown as Queue;
+  const response = await app.request(
+    "/api/sources",
+    {
+      method: "POST",
+      headers: { Cookie: await cookie(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Capacity test",
+        kind: "text",
+        text: "A neutral world for upload verification.",
+        images,
+      }),
+    },
+    env,
+  );
+  expect(response.status).toBe(202);
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM source_images").get(),
+  ).toMatchObject({ n: 3 });
+  expect(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM assets").get(),
+  ).toMatchObject({ n: 3 });
+}, 15000);

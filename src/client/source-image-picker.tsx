@@ -2,8 +2,11 @@ import { useState } from "react";
 import type { WorldDraft } from "../shared/contracts";
 import { api, errorMessage, post } from "./api";
 export type SourceImageInput = { label: string; dataUrl: string };
-const limit = 6,
-  maxBytes = 2 * 1024 * 1024;
+import {
+  MAX_SOURCE_IMAGES as limit,
+  MAX_SOURCE_IMAGE_BYTES as maxBytes,
+  MAX_SOURCE_IMAGE_TOTAL_BYTES,
+} from "../shared/source-image-limits";
 function decodedBytes(images: SourceImageInput[]) {
   return images.reduce((total, image) => {
     const data = image.dataUrl.split(",")[1] || "";
@@ -29,7 +32,7 @@ async function readImages(files: File[], remaining: number) {
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type))
       throw new Error("請選擇 PNG、JPEG 或 WebP 圖片。");
     if (file.size > maxBytes)
-      throw new Error(`「${file.name}」超過 2 MB，請縮小後再選擇。`);
+      throw new Error(`「${file.name}」超過 5 MB，請縮小後再選擇。`);
     if (!file.size) throw new Error(`「${file.name}」沒有可讀取的圖片內容。`);
   }
   const result: SourceImageInput[] = [];
@@ -74,9 +77,9 @@ export function SourceImageInputs({
                 ...images,
                 ...(await readImages(files, limit - images.length)),
               ];
-              if (decodedBytes(selected) > 6 * 1024 * 1024)
+              if (decodedBytes(selected) > MAX_SOURCE_IMAGE_TOTAL_BYTES)
                 throw new Error(
-                  "原作參考圖合計不可超過 6 MB，請縮小圖片後重試。",
+                  "原作參考圖合計不可超過 15 MB，請縮小圖片後重試。",
                 );
               onChange(selected);
             } catch (e) {
@@ -89,7 +92,7 @@ export function SourceImageInputs({
         />
       </label>
       <p className="field-note">
-        最多 6 張，每張 2 MB、合計 6 MB。參考圖只保存在私人
+        最多 6 張，每張 5 MB、合計 15 MB。參考圖只保存在私人
         Studio，用來核對原作的視覺特徵，不會隨世界網站公開。
       </p>
       {!!images.length && (

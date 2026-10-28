@@ -5,13 +5,20 @@ import type { Env } from "./env";
 import { assertRevision, DomainError, now, revised, sha256 } from "./domain";
 import { getWorld, saveWorld } from "./repository";
 
-export const MAX_SOURCE_IMAGES = 6;
-export const MAX_SOURCE_IMAGE_BYTES = 2 * 1024 * 1024;
-export const MAX_SOURCE_IMAGE_TOTAL_BYTES = 6 * 1024 * 1024;
+import {
+  MAX_SOURCE_IMAGES,
+  MAX_SOURCE_IMAGE_BYTES,
+  MAX_SOURCE_IMAGE_TOTAL_BYTES,
+} from "../shared/source-image-limits";
+export {
+  MAX_SOURCE_IMAGES,
+  MAX_SOURCE_IMAGE_BYTES,
+  MAX_SOURCE_IMAGE_TOTAL_BYTES,
+} from "../shared/source-image-limits";
 const totalLimit = () =>
   new DomainError(
     "SOURCE_IMAGE_TOTAL_TOO_LARGE",
-    "原作參考圖合計不可超過 6 MB，請縮小圖片後重試。",
+    "原作參考圖合計不可超過 15 MB，請縮小圖片後重試。",
     422,
   );
 export type ValidatedSourceImage = {
@@ -72,19 +79,21 @@ export async function validateSourceImageInputs(
     if (match[2].length > Math.ceil(MAX_SOURCE_IMAGE_BYTES / 3) * 4)
       throw new DomainError(
         "SOURCE_IMAGE_TOO_LARGE",
-        "每張原作參考圖不可超過 2 MB。",
+        "每張原作參考圖不可超過 5 MB。",
         422,
       );
     let bytes: Uint8Array;
     try {
-      bytes = Uint8Array.from(atob(match[2]), (char) => char.charCodeAt(0));
+      const binary = atob(match[2]);
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     } catch {
       throw invalidImage();
     }
     if (bytes.length > MAX_SOURCE_IMAGE_BYTES)
       throw new DomainError(
         "SOURCE_IMAGE_TOO_LARGE",
-        "每張原作參考圖不可超過 2 MB。",
+        "每張原作參考圖不可超過 5 MB。",
         422,
       );
     totalBytes += bytes.length;
