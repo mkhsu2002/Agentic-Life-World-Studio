@@ -635,10 +635,16 @@ it("reuses whole-book reading notes across later turns and retains a late prohib
             : [],
           evidence: [],
         };
+      } else if (req.response_format.json_schema.schema.properties.pass) {
+        value = { pass: true, issues: [], reply: "已核對原文。" };
       } else {
         directors++;
         expect(JSON.stringify(context)).toContain("禁止揭露天空之外");
-        value = { reply: "已理解", action: "reply" };
+        value = {
+          reply: "已理解，以下是創作方向建議。",
+          action: "direction",
+          direction,
+        };
       }
       return new Response(
         JSON.stringify({
@@ -656,6 +662,12 @@ it("reuses whole-book reading notes across later turns and retains a late prohib
     { name: "book", kind: "text", text: story },
   ]);
   for (let i = 0; i < 8; i++) await processConversationTask(env, a.body.taskId);
+  const initialReview = sql
+    .prepare(
+      "SELECT id FROM studio_tasks WHERE role='review' AND status='queued'",
+    )
+    .get() as { id: string };
+  await processConversationTask(env, initialReview.id);
   const count = reads;
   expect(count).toBe(5);
   const b = await turn(id, "請繼續討論視覺");
@@ -1797,3 +1809,177 @@ it("resumes exhausted author-copy repair on a new task without re-reading or re-
   ).toEqual(direction);
   expect(originals).toBe(1);
 });
+it("repairs repeated sentences and paragraphs before exposing author-facing copy", async () => {
+  const { directorAuthorCopyIssues } =
+    await import("../src/server/author-copy");
+  expect(
+    directorAuthorCopyIssues({
+      action: "reply",
+      reply:
+        "你好，我會陪你一起發展這個世界。\n\n你希望這個世界帶給讀者什麼感受？\n\n".repeat(
+          20,
+        ),
+    }).some((issue) => issue.includes("重複")),
+  ).toBe(true);
+});
+it("completes the first source reading as a direction proposal using a saved small repair candidate", async () => {
+  const id = await create();
+  let directorCalls = 0,
+    copyCalls = 0,
+    sourceReads = 0;
+  const get = env.STORAGE.get.bind(env.STORAGE);
+  env.STORAGE.get = async (key, ...rest) => {
+    if (String(key).includes("/sources/")) sourceReads++;
+    return get(key, ...rest);
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: any, opts: any) => {
+      const request = JSON.parse(opts.body),
+        context = JSON.parse(request.messages[1].content);
+      let value;
+      if (request.response_format.json_schema.schema.properties.pass)
+        value = { pass: true, issues: [], reply: "已回查原文。" };
+      else if (context.authorCopyCandidate) {
+        copyCalls++;
+        expect(JSON.stringify(context).length).toBeLessThan(45000);
+        value = {
+          reply:
+            "我理解這個世界重視環境與生命的關係，以下是完整的創作方向建議。",
+          direction,
+        };
+      } else {
+        directorCalls++;
+        value = {
+          action: "reply",
+          reply:
+            "你好，我會陪你一起發展這個世界。\n\n你希望這個世界帶給讀者什麼感受？\n\n".repeat(
+              20,
+            ),
+        };
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify(value) },
+            },
+          ],
+        }),
+      );
+    }),
+  );
+  const a = await turn(id, "請閱讀原稿並提出創作方向", [
+    {
+      name: "book",
+      kind: "text",
+      text:
+        "海岸世界裡，生命跟隨暖流。".repeat(10000) + "末段禁止揭露旅人身世。",
+    },
+  ]);
+  await processConversationTask(env, a.body.taskId);
+  const reads = sourceReads;
+  expect(
+    (await req("/conversations/" + id)).body.events
+      .filter((e: any) => e.type === "assistant")
+      .some((e: any) => e.content.includes("你好，我會陪你")),
+  ).toBe(false);
+  await processConversationTask(env, a.body.taskId);
+  expect(sourceReads).toBe(reads);
+  expect(directorCalls).toBe(1);
+  expect(copyCalls).toBe(1);
+  const review = sql
+    .prepare(
+      "SELECT id FROM studio_tasks WHERE role='review' AND status='queued'",
+    )
+    .get() as { id: string };
+  expect(review).toBeTruthy();
+  await processConversationTask(env, review.id);
+  expect((await req("/conversations/" + id)).body.proposals[0].kind).toBe(
+    "direction",
+  );
+});
+it("keeps ordinary follow-up discussion as a reply when a direction proposal already exists", async () => {
+  const { createProposal } = await import("../src/server/conversation");
+  const id = await create();
+  await createProposal(env, id, "direction", {
+    direction,
+    reply: "請確認方向。",
+  });
+  model({
+    action: "reply",
+    reply: "可以，我們先討論這個世界想帶給讀者的感受。",
+  });
+  const a = await turn(id, "先聊聊受眾");
+  await processConversationTask(env, a.body.taskId);
+  expect(
+    (await req("/conversations/" + id)).body.events.at(-1).content,
+  ).toContain("先討論");
+  expect(
+    sql
+      .prepare("SELECT COUNT(*) n FROM studio_tasks WHERE role='review'")
+      .get(),
+  ).toEqual({ n: 0 });
+});
+it.each(["site", "operation"])(
+  "holds an initial %s action until a complete direction has been reviewed",
+  async (action) => {
+    const id = await create();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: any, opts: any) => {
+        const request = JSON.parse(opts.body),
+          context = JSON.parse(request.messages[1].content);
+        const value = request.response_format.json_schema.schema.properties.pass
+          ? { pass: true, issues: [], reply: "已核對原文。" }
+          : context.authorCopyCandidate
+            ? {
+                reply: "以下是完整創作方向，請確認是否採用。",
+                direction,
+                action: "operation",
+              }
+            : {
+                reply: "我已讀完這個海岸故事。",
+                action,
+                operation: {
+                  frequencyHours: 24,
+                  maxCalls: 10,
+                  scope: "海岸觀察",
+                },
+              };
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "stop",
+                message: { content: JSON.stringify(value) },
+              },
+            ],
+          }),
+        );
+      }),
+    );
+    const a = await turn(id, "請閱讀原稿，每天更新最多10次", [
+      {
+        name: "book",
+        kind: "text",
+        text: "海岸的旅人只觀察暖流與生命，不揭露身世。",
+      },
+    ]);
+    await processConversationTask(env, a.body.taskId);
+    await processConversationTask(env, a.body.taskId);
+    const review = sql
+      .prepare(
+        "SELECT id FROM studio_tasks WHERE role='review' AND status='queued'",
+      )
+      .get() as { id: string };
+    expect(review).toBeTruthy();
+    await processConversationTask(env, review.id);
+    const snapshot = (await req("/conversations/" + id)).body;
+    expect(snapshot.proposals.map((p: any) => p.kind)).toEqual(["direction"]);
+    expect(
+      sql.prepare("SELECT COUNT(*) n FROM studio_approvals").get(),
+    ).toEqual({ n: 0 });
+  },
+);

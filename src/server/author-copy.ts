@@ -15,6 +15,15 @@ function languageIssue(value: string) {
       .length;
   return !han || (latin > 12 && han / (han + latin) < 0.2) || kana > 4;
 }
+function repetitiveCopy(value: string) {
+  const units = value
+    .split(/[。！？.!?\n]+/u)
+    .map((part) => part.replace(/\s+/gu, "").trim())
+    .filter((part) => part.length >= 8);
+  const counts = new Map<string, number>();
+  for (const unit of units) counts.set(unit, (counts.get(unit) || 0) + 1);
+  return [...counts.values()].some((count) => count >= 3);
+}
 function unsupportedNamingInference(value: string) {
   return value
     .split(/[。！？\n]/u)
@@ -62,6 +71,8 @@ function authorBodyIssues(value: string, label: string, requireChinese = true) {
   const issues: string[] = [];
   if (value.trim() && requireChinese && languageIssue(value))
     issues.push(`${label}需要自然繁體中文，保留必要專名即可。`);
+  if (repetitiveCopy(value))
+    issues.push(`${label}反覆重複相同句子或段落，應精簡為一次清楚的說明。`);
   if (unsupportedNamingInference(value))
     issues.push(
       `${label}把原著未命名推成禁止命名，應區分留白與原作明示禁令，提出待作者核准的命名建議。`,
@@ -92,7 +103,7 @@ export function worldAuthorCopyIssues(candidate: WorldAuthorCandidate) {
   }
   return issues;
 }
-const prompt = `你是世界創作總監的措辭修訂步驟，只修作者可見的說明，不重新分析原著，不新增角色。將英文說明改成自然、清楚的繁體中文，讓作者知道你理解什麼、建議什麼、需要決定什麼。不要在對話列 JSON key、資料欄位名、代理角色名稱、世界編譯流程或程式動作。專名、已確認名稱及引用保留，其他說明用繁體中文。必須保留原候選的事實、建議、限制與選擇，不能新增禁令或擅自擴張權限，不能替作者確認、核准、發布或啟動。若原候選沒有名稱，不代表禁止命名；不得把留白改成禁令。若候選僅用「原著未命名」推成「不得命名」，應撤除這個無依據的推論，改為提出由作者核准的命名建議；原文明示的命名禁令必須保留，不能以改措辭刪除。修後還會交由獨立審核回查原文。只回傳指定JSON。`;
+const prompt = `你是世界創作總監的措辭修訂步驟，只修作者可見的說明，不重新分析原著，不新增角色。將英文說明改成自然、清楚的繁體中文，讓作者知道你理解什麼、建議什麼、需要決定什麼。不要在對話列 JSON key、資料欄位名、代理角色名稱、世界編譯流程或程式動作。專名、已確認名稱及引用保留，其他說明用繁體中文。必須保留原候選的事實、建議、限制與選擇，不能新增禁令或擅自擴張權限，不能替作者確認、核准、發布或啟動。若原候選沒有名稱，不代表禁止命名；不得把留白改成禁令。若候選僅用「原著未命名」推成「不得命名」，應撤除這個無依據的推論，改為提出由作者核准的命名建議；原文明示的命名禁令必須保留，不能以改措辭刪除。刪除重複問候、重複問題和反覆段落，每個意思只表達一次，不複述歷史訊息或整段對話，也不以對話填充篇幅。回覆精簡為一至四段，聚焦當前成果與下一個選擇。修後還會交由獨立審核回查原文。只回傳指定JSON。`;
 const directorCopySchema = z.object({
   reply: z.string().min(1).max(16000),
   direction: directionSchema.optional(),
@@ -101,15 +112,22 @@ export async function repairDirectorAuthorCopy(
   env: Env,
   task: TaskRow,
   candidate: DirectorCandidate,
+  initialUnderstanding?: string,
 ) {
+  const copySchema =
+    initialUnderstanding !== undefined
+      ? directorCopySchema.extend({ direction: directionSchema })
+      : directorCopySchema;
   const merge = (
     copy: z.infer<typeof directorCopySchema>,
   ): DirectorCandidate => ({
     ...candidate,
     reply: copy.reply,
-    ...(candidate.direction
-      ? { direction: copy.direction || candidate.direction }
-      : {}),
+    ...(initialUnderstanding !== undefined
+      ? { action: "direction" as const, direction: copy.direction }
+      : candidate.direction
+        ? { direction: copy.direction || candidate.direction }
+        : {}),
   });
   const result = await modelResult(
     env,
@@ -119,12 +137,21 @@ export async function repairDirectorAuthorCopy(
       authorCopyCandidate: candidate,
       copyIssues: directorAuthorCopyIssues(candidate),
       allowedChanges: ["reply", "direction文字"],
+      ...(initialUnderstanding !== undefined
+        ? { initialUnderstanding, directionRequired: true }
+        : {}),
     },
-    directorCopySchema,
+    copySchema,
     [],
-    prompt,
+    prompt +
+      (initialUnderstanding !== undefined
+        ? "這是首次閱讀後尚未完成的創作方向提案。根據候選與已保存的有界原文理解，必須補齊六個創作方向欄位；不知道的細節標為未定並提出待核准建議，不得只問候或反覆詢問同一問題。此步只形成未核准方向，不能執行其他動作。"
+        : ""),
     (copy) => {
-      if (candidate.direction && !copy.direction)
+      if (
+        (candidate.direction || initialUnderstanding !== undefined) &&
+        !copy.direction
+      )
         throw new DomainError(
           "AUTHOR_COPY_INVALID",
           "創作提案的文字仍需整理。",

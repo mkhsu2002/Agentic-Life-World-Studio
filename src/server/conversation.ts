@@ -445,7 +445,7 @@ async function child(env: Env, t: TaskRow, role: StudioRole, payload: Payload) {
     if (!object) throw new DomainError("AUTHOR_COPY_MISSING");
     const key = `${prefix}${id}/${copy.role}.json`;
     await env.STORAGE.put(key, await object.text());
-    payload.authorCopy = { role: copy.role, key };
+    payload.authorCopy = { ...copy, key };
   }
   await finish(env, t, taskStatements(env, id, c, t.turn_id, role, payload));
   return id;
@@ -1013,12 +1013,21 @@ async function director(env: Env, t: TaskRow, p: Payload) {
   )
     .bind(c.id, owner.id)
     .all<{ type: string; content: string }>();
+  const initialDirectionRequired =
+    manifest.length > 0 &&
+    !c.document.direction &&
+    !(await env.DB.prepare(
+      "SELECT id FROM studio_proposals WHERE conversation_id=? AND kind='direction' LIMIT 1",
+    )
+      .bind(c.id)
+      .first());
   const result = await modelResult(
     env,
     t,
     "director",
     {
       ownerMessage: owner.content,
+      initialDirectionRequired,
       currentWorld: c.document,
       conversation: events.results.reverse(),
       originalSources: original,
@@ -1044,15 +1053,34 @@ async function director(env: Env, t: TaskRow, p: Payload) {
     },
     schemas.director,
     images,
-    undefined,
-    (value) => {
-      if (value.action === "direction" && !value.direction)
-        throw new DomainError("DIRECTION_MISSING");
-    },
   );
   if (!(await activeTask(env, t))) return;
-  if (directorAuthorCopyIssues(result).length) {
-    await stageAuthorCopy(env, t, p, "director", result);
+  const completeDirection =
+    (initialDirectionRequired &&
+      (result.action !== "direction" || !result.direction)) ||
+    (result.action === "direction" && !result.direction);
+  if (directorAuthorCopyIssues(result).length || completeDirection) {
+    const understanding = completeDirection
+      ? JSON.stringify({
+          original,
+          currentDirection: c.document.direction,
+          referenceNotes,
+        })
+      : undefined;
+    await stageAuthorCopy(
+      env,
+      t,
+      p,
+      "director",
+      result,
+      understanding === undefined
+        ? undefined
+        : understanding.length > 24000
+          ? understanding.slice(0, 12000) +
+            "\n[中段未附；後續審核會回查完整原文]\n" +
+            understanding.slice(-12000)
+          : understanding,
+    );
     return;
   }
   await dispatchDirectorResult(env, t, p, result);
@@ -2077,18 +2105,30 @@ async function stageAuthorCopy(
   p: Payload,
   role: "director" | "world",
   candidate: DirectorCandidate | WorldAuthorCandidate,
+  initialUnderstanding?: string,
 ) {
   const key = `studio/${t.conversation_id}/author-copy/${t.id}/${role}.json`;
   await env.STORAGE.put(key, JSON.stringify(candidate));
   await requeue(
     env,
     t,
-    { ...p, authorCopy: { role, key } },
+    {
+      ...p,
+      authorCopy: {
+        role,
+        key,
+        ...(initialUnderstanding !== undefined ? { initialUnderstanding } : {}),
+      },
+    },
     "已完成內容理解，正在整理清楚的創作提案。",
   );
 }
 async function authorCopyTask(env: Env, t: TaskRow, p: Payload) {
-  const copy = p.authorCopy as { role: "director" | "world"; key: string };
+  const copy = p.authorCopy as {
+    role: "director" | "world";
+    key: string;
+    initialUnderstanding?: string;
+  };
   if (
     !copy ||
     !["director", "world"].includes(copy.role) ||
@@ -2103,6 +2143,7 @@ async function authorCopyTask(env: Env, t: TaskRow, p: Payload) {
       env,
       t,
       schemas.director.parse(candidate),
+      copy.initialUnderstanding,
     );
     if (!(await activeTask(env, t))) return;
     await dispatchDirectorResult(env, t, p, repaired);

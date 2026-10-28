@@ -42,7 +42,7 @@ GitHub Actions 只持有 `CLOUDFLARE_API_TOKEN` 與 `STUDIO_DEPLOY_TOKEN`；沒�
 
 Bindings：`ASSETS`、`DB`、`STORAGE`、`JOBS`、`OPERATIONS`。每次發布核對 `BUILD_REVISION`、產品版號及 `utsp-studio/0.07`，兩環境實際套用 migrations 0001–0007。0006 新增對話、來源、任務、核准、記憶及用量；0007 新增網站、發布、自主政策輪次、排程及旅程紀錄，不刪舊資料。
 
-Studio 新 API 在 `/api/studio/`，舊 `/api/worlds/` 留作歷史資料相容。turn 的原子冪等由 `studio_turns.client_message_id` 處理，不經舊版 `operation_keys` pending cache。SSE 事件可重播，snapshot 是一致的最新一千則，`events?before=` 取得更早訊息。總監若回傳英文說明或內部欄位詞，先保存候選再修訂供作者閱讀的繁中文案，不重讀長原稿；修訂不能改 action、識別、設定權限或營運政策，人工重試沿用已保存候選。
+Studio 新 API 在 `/api/studio/`，舊 `/api/worlds/` 留作歷史資料相容。turn 的原子冪等由 `studio_turns.client_message_id` 處理，不經舊版 `operation_keys` pending cache。SSE 事件可重播，snapshot 是一致的最新一千則，`events?before=` 取得更早訊息。總監若回傳英文說明或內部欄位詞，先保存候選再修訂供作者閱讀的繁中文案，不重讀長原稿；修訂不能改 action、識別、設定權限或營運政策，人工重試沿用已保存候選。首次閱讀若只回覆而未形成方向，使用既有理解補齊未核准提案，再回查原文；重複句段先修訂，不直接顯示。
 
 ## GitHub → Cloudflare
 
