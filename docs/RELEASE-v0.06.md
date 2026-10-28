@@ -1,6 +1,6 @@
 # v0.06 六項創作簡報
 
-狀態：2026-10-27，本機實作與複審完成，GitHub 部署及 live 驗證待完成。產品 0.06／npm 0.0.6，API utsp-studio/0.06、簡報 world-brief/0.06。
+狀態：2026-10-27，GitHub main 發布完成，雙環境與真實模型中性原文 smoke 已驗證。產品 0.06／npm 0.0.6，API utsp-studio/0.06、簡報 world-brief/0.06。
 
 ## 本版改動
 
@@ -22,4 +22,12 @@
 - 完整 188 個測試（14 個檔案）、typecheck、production build、format 與 npm audit 通過，0 vulnerabilities。
 - FlyPig canonical lane 帳戶已讀回；中性本機 fixture 的 DOM 互動驗證包含六段預填、零題核准預設否、採用建議後必須儲存、同版核准、未存內容跨 tab 保留、stale snapshot 在送出前阻擋且保留草稿。桌面 1440px／手機 393px 無水平溢出。
 - fixture 測試只作用於 localhost，不核准正式作品。瀏覽器背景視窗的原生點擊穩定性檢查受到頁面暫停影響，因此改用 DOM 事件驗證狀態及 API；未宣稱完成所有原生滑鼠操作 e2e。
-- 雙環境 GitHub／live readback 與中性原文 smoke 結果於發布後補齊。
+
+## 部署與線上讀回
+
+- GitHub [run 40631355403](https://github.com/mkhsu2002/Agentic-Life-World-Studio/actions/runs/40631355403) 成功，dev／production 均部署程式 commit `bff78adb68cd4dfba4e9f5ed730dfb6fd624d9c3`；產品 `0.06`、契約 `utsp-studio/0.06`，Git tag `v0.06` 指向此測過的程式 commit。
+- 重新查核兩環境 BUILD_REVISION、ASSETS／DB／R2／Queue／必要 secret 名稱、migrations 0001–0005，均一致。health／private overview 401／HTML／JS 讀回通過，前端同為 `/assets/index-ZTQk5li0.js` 且包含六項新流程文案。
+- 正式 Studio 顯示 v0.06 與「用六項重新整理」手動入口，不再顯示舊八模組表；沒有替既有作品送出重新整理、裁定、核准或啟用。正式新 `/brief` API 無效輸入實測回 422，未寫入內容。
+- dev 以一段獨立中性文字進行真實模型新匯入，完成 1/1 閱讀與 5/5 步驟：六段非空、零必要裁定、零預萃取元素、一個已預填風格，狀態 draft；無 framework、無任何設定或視覺核准。
+- 真實執行 reader／editor／visual／fidelity 四筆 usage ledger 皆 incurred，四個 checkpoint、一筆 brief.compiled audit；approvals／world_snapshots／releases 都為零。錯誤 hash 的核准請求拒絕 409，沒有產生核准紀錄。
+- 這個 smoke 只在 dev 新中性世界執行，不生成圖片、不啟用、不公開；未重跑正式原作。

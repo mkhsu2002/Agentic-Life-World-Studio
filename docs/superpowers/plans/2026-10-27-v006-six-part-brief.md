@@ -15,4 +15,4 @@
 - [x] 根代理：串接新匯入與手動重新整理、對話、視覺／翻譯／發布相容；移除新流程對完整元素庫與起點 ID 的依賴。
 - [x] 規格與品質獨立複審，修復後跑完整測試、型別、build、format、audit，桌面／手機 fixture 操作。
 - [x] 同步 VERSION／npm／README／OPERATIONS／release 為 v0.06，檢查過期文案。
-- [ ] GitHub commit／push，雙環境 schema／bindings／deployed code／frontend／live 驗證；不代替作者核准或重新解析既有 IP。
+- [x] GitHub commit／push，雙環境 schema／bindings／deployed code／frontend／live 驗證；不代替作者核准或重新解析既有 IP。

@@ -4,7 +4,7 @@
 
 ## MVP v0.06
 
-私人 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 改用六項創作簡報；AI 先整理，作者只處理必要裁定。部署與驗證狀態見 [v0.06 release](docs/RELEASE-v0.06.md)。
+私人 [Studio](https://agentic-world-studio-production.mkhsu2002.workers.dev/) 的 v0.06 已由 GitHub 同步部署至 dev／production，改用六項創作簡報；AI 先整理，作者只處理必要裁定。雙環境及中性原文實測結果見 [v0.06 release](docs/RELEASE-v0.06.md)。
 
 - **六段預填：**世界基本樣貌、視覺風格、觀看者與敘述聲音、旅程時段與揭露界線、命名、延伸創作範圍。沒有必要問題即可直接確認，不要求先建立人物／物品／關係百科或探索起點 ID。
 - **必要裁定：**最多五個真正影響畫面、公開敘述或創作界線的問題。AI 建議與作者答案分開；採用建議必須由作者點選，解析不能代答。
